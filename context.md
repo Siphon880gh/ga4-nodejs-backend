@@ -1,8 +1,10 @@
-# Google Search Console CLI - Technical Context
+# Google Analytics 4 CLI - Technical Context
 
 ## Overview
 
-A Node.js application for querying Google Search Console data with OAuth2 authentication and optional BigQuery integration. Provides both interactive CLI and REST API interfaces with multi-user support and JWT authentication.
+A Node.js application for querying Google Analytics 4 data with OAuth2 authentication and optional BigQuery integration. Provides both interactive CLI and REST API interfaces with multi-user support and JWT authentication.
+
+**Migration Note**: This application has been migrated from Google Search Console (GSC) to Google Analytics 4 (GA4) for comprehensive web analytics.
 
 ## Tech Stack
 
@@ -11,7 +13,7 @@ A Node.js application for querying Google Search Console data with OAuth2 authen
 - **Database**: SQLite with better-sqlite3 for user data storage
 - **CLI Interface**: Inquirer.js for interactive prompts
 - **API Server**: Express.js with JWT authentication middleware
-- **Data Sources**: Google Search Console API, BigQuery API
+- **Data Sources**: Google Analytics 4 API, BigQuery API
 - **Output**: Table (console), JSON, CSV formats with smart sorting
 - **Security**: JWT tokens with configurable expiration and session management
 
@@ -22,7 +24,7 @@ src/
 ├── api/           # REST API server and JWT authentication
 ├── cli/           # CLI interface and prompts
 ├── core/          # Query execution and presets
-├── datasources/   # API integrations (GSC, BigQuery)
+├── datasources/   # API integrations (GA4, BigQuery)
 └── utils/         # Configuration and utilities
 ```
 
@@ -48,6 +50,7 @@ The application now supports both CLI and REST API interfaces:
 - **`src/api/auth-middleware.js`** (162 lines) - JWT authentication middleware
 
 ### Data Sources & Core
+- **`src/datasources/analytics.js`** (376 lines) - GA4 API with OAuth2 authentication and property listing
 - **`src/datasources/searchconsole.js`** (361 lines) - GSC API with client-side sorting and OAuth2 requests
 - **`src/core/query-runner.js`** (96 lines) - Query execution with preset/ad-hoc handling
 - **`src/core/presets.js`** - Preset query definitions
@@ -65,9 +68,47 @@ The application now supports both CLI and REST API interfaces:
 - **`callback.html`** (143 lines) - OAuth2 callback page
 - **`gsc_auth.db`** - SQLite database for user authentication and site data
 
+## GA4 Migration Lessons Learned
+
+### Critical Authentication Issues Resolved
+
+**Problem**: Google Analytics Admin API client libraries have OAuth2 compatibility issues:
+- `@google-analytics/admin` package hangs on API calls with OAuth2
+- `googleapis` package with `analyticsadmin` service has authentication errors
+- Client libraries designed for service accounts, not OAuth2 user credentials
+
+**Solution**: Use REST API directly with OAuth2 Bearer tokens:
+```javascript
+// Direct REST API call (works reliably with OAuth2)
+const response = await fetch('https://analyticsadmin.googleapis.com/v1beta/accountSummaries', {
+  method: 'GET',
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  }
+});
+```
+
+**Key Learnings**:
+1. **Don't assume authentication issues** - Hanging was client library problem, not auth
+2. **REST API is more reliable** - Raw HTTP calls work better than client libraries for OAuth2
+3. **Service accounts vs OAuth2** - Admin API designed for service accounts, but REST API works with OAuth2
+4. **Avoid client library complexity** - Direct API calls are simpler and more reliable
+
+### Required OAuth2 Scopes for GA4
+
+```javascript
+const scopes = [
+  'https://www.googleapis.com/auth/analytics.readonly',
+  'https://www.googleapis.com/auth/bigquery.readonly'
+];
+```
+
+**Note**: `analytics.edit` scope is NOT required for listing properties - `analytics.readonly` is sufficient.
+
 ## OAuth2 Authentication Flow
 
-The app uses OAuth2 with browser-based consent for Google Search Console access:
+The app uses OAuth2 with browser-based consent for Google Analytics access:
 
 ```javascript
 // OAuth2 client setup with credentials
@@ -80,25 +121,34 @@ const oauth2Client = new OAuth2Client(
 // Browser consent flow
 const authUrl = oauth2Client.generateAuthUrl({
   access_type: 'offline',
-  scope: ['https://www.googleapis.com/auth/webmasters.readonly'],
+  scope: [
+    'https://www.googleapis.com/auth/analytics.readonly',
+    'https://www.googleapis.com/auth/bigquery.readonly'
+  ],
   prompt: 'consent'
 });
 ```
 
-**Key Implementation**: Direct OAuth2 client request method bypasses Google APIs client library authentication issues:
+**Key Implementation**: Direct REST API calls with OAuth2 Bearer tokens bypass client library issues:
 
 ```javascript
-// Direct API call using OAuth2 client (for site listing)
-const response = await auth.request({
-  url: 'https://searchconsole.googleapis.com/webmasters/v3/sites',
-  method: 'GET'
+// Direct REST API call for GA4 properties listing
+const response = await fetch('https://analyticsadmin.googleapis.com/v1beta/accountSummaries', {
+  method: 'GET',
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  }
 });
 
-// Direct API call for queries (bypasses Google APIs client library)
-const response = await auth.request({
-  url: `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`,
+// Direct API call for GA4 data queries
+const response = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`, {
   method: 'POST',
-  data: requestBody
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify(requestBody)
 });
 ```
 
@@ -106,10 +156,10 @@ const response = await auth.request({
 
 Interactive menu system with separate query options and continuous loop:
 
-1. **GSC Query: Ad-hoc** - Execute custom queries with metric/dimension selection
-2. **GSC Query: Report** - Execute predefined preset queries (no sorting prompts)
-3. **GSC List sites** - Show GSC properties
-4. **GSC Select site** - Interactive site selection with memory
+1. **Analytics Query: Ad-hoc** - Execute custom GA4 queries with metric/dimension selection
+2. **Analytics Query: Report** - Execute predefined preset queries (no sorting prompts)
+3. **Analytics List properties** - Show GA4 properties
+4. **Analytics Select property** - Interactive property selection with memory
 5. **Sign in with Google** - OAuth2 flow setup
 6. **Sign out** - Clear authentication data
 7. **Exit** - Properly terminate the CLI
@@ -122,11 +172,11 @@ const base = [
     name: "action",
     message: "What would you like to do?",
     choices: [
-      { name: "GSC Query: Ad-hoc", value: "adhoc" },
-      { name: "GSC Query: Report", value: "preset" },
-      { name: "GSC List sites", value: "sites" },
-      { name: "GSC Select site", value: "select_site" },
-      { name: "Sign in with Google Account that has verified access to GSC", value: "auth" },
+      { name: "Analytics Query: Ad-hoc", value: "adhoc" },
+      { name: "Analytics Query: Report", value: "preset" },
+      { name: "Analytics List properties", value: "sites" },
+      { name: "Analytics Select property", value: "select_site" },
+      { name: "Sign in with Google Account that has access to Analytics", value: "auth" },
       { name: "Sign out", value: "signout" },
       { name: "Exit", value: "exit" },
     ],
@@ -157,28 +207,35 @@ while (true) {
 
 ## Data Sources
 
-### Google Search Console
+### Google Analytics 4
+- **Authentication**: OAuth2 with browser consent
+- **Scope**: `https://www.googleapis.com/auth/analytics.readonly`
+- **API**: Analytics Data API v1beta, Analytics Admin API v1beta
+- **Implementation**: Direct REST API calls with Bearer tokens
+- **Token Storage**: SQLite database (`gsc_auth.db`)
+
+### Google Search Console (Legacy)
 - **Authentication**: OAuth2 with browser consent
 - **Scope**: `https://www.googleapis.com/auth/webmasters.readonly`
 - **API**: Search Console API v1
-- **Token Storage**: `.oauth_tokens.json` (auto-generated)
+- **Token Storage**: SQLite database (`gsc_auth.db`)
 
 ### BigQuery (Optional)
 - **Authentication**: Service account or OAuth2
 - **Configuration**: Via environment variables
-- **Integration**: GSC data export to BigQuery
+- **Integration**: GA4 data export to BigQuery
 
 ## Query System
 
 ### Preset Queries (Report Queries)
-Built-in SEO analytics queries in `config.js` with client-side sorting:
+Built-in GA4 analytics queries in `config.js` with client-side sorting:
 
 ```javascript
 presets: [
   {
     id: "top-queries",
     label: "Top Queries by Clicks",
-    source: "searchconsole",
+    source: "analytics",
     metrics: ["clicks", "impressions", "ctr", "position"],
     dimensions: ["query"],
     orderBys: [{ metric: "clicks", desc: true }],
@@ -187,7 +244,7 @@ presets: [
   {
     id: "top-queries-impressions",
     label: "Top Queries by Impressions",
-    source: "searchconsole",
+    source: "analytics",
     metrics: ["impressions", "clicks", "ctr", "position"],
     dimensions: ["query"],
     orderBys: [{ metric: "impressions", desc: true }],
@@ -196,7 +253,7 @@ presets: [
   {
     id: "top-pages-impressions",
     label: "Top Pages by Impressions",
-    source: "searchconsole",
+    source: "analytics",
     metrics: ["impressions", "clicks", "ctr", "position"],
     dimensions: ["page"],
     orderBys: [{ metric: "impressions", desc: true }],
@@ -211,9 +268,9 @@ presets: [
 - **Impressions-Based Reports**: New presets for impression-focused analysis
 
 ### Ad-hoc Queries
-Custom query builder with:
-- **Metrics**: clicks, impressions, ctr, position
-- **Dimensions**: query, page, country, device, searchAppearance, date
+Custom GA4 query builder with:
+- **Metrics**: sessions, users, pageviews, bounceRate, sessionDuration
+- **Dimensions**: country, device, source, medium, campaign, date
 - **Filters**: Dimension-based filtering
 - **Date Ranges**: Last 7/28/90 days or custom
 - **Interactive Sorting**: User can customize sorting after query execution
@@ -223,7 +280,7 @@ Custom query builder with:
 For reliable sorting of preset queries, the system uses client-side sorting after API response:
 
 ```javascript
-// src/datasources/searchconsole.js - Client-side sorting
+// src/datasources/analytics.js - Client-side sorting
 if (query.orderBys && query.orderBys.length > 0) {
   rows = rows.sort((a, b) => {
     for (const orderBy of query.orderBys) {
@@ -245,15 +302,15 @@ if (query.orderBys && query.orderBys.length > 0) {
 - **Multi-Level Sorting**: Supports primary/secondary sorting levels
 - **Preset Integrity**: Maintains intended sorting for all preset queries
 
-## Site Selection
+## Property Selection
 
-The CLI now includes intelligent site selection that remembers your choice:
+The CLI now includes intelligent property selection that remembers your choice:
 
-### Site Selection Features
-- **Interactive Selection**: Choose from verified GSC properties using arrow keys
-- **Persistent Memory**: Your selection is saved in `.selected_site.json`
-- **Verified Properties Only**: Only shows properties you have full access to
-- **Automatic Usage**: Selected site is automatically used for all queries
+### Property Selection Features
+- **Interactive Selection**: Choose from GA4 properties using arrow keys
+- **Persistent Memory**: Your selection is saved in SQLite database
+- **Accessible Properties Only**: Only shows properties you have access to
+- **Automatic Usage**: Selected property is automatically used for all queries
 - **Easy Changes**: Change your selection anytime from the main menu
 
 **Detailed Implementation**: See [context-site-selection.md](./context-site-selection.md) for complete technical details.
@@ -265,7 +322,7 @@ Reusable authentication utilities ensure consistent authentication across all CL
 ```javascript
 // src/utils/auth-helper.js
 export async function getAuthenticatedClient(cfg) {
-  const auth = await getOAuth2Client(gscConfig);
+  const auth = await getOAuth2Client(analyticsConfig);
   await auth.getAccessToken(); // Ensure fresh token
   return auth;
 }
@@ -277,7 +334,7 @@ export async function ensureAuthentication(cfg) {
 }
 ```
 
-**Benefits**: Consistent authentication pattern used by all CLI handlers (queries, site listing, site selection).
+**Benefits**: Consistent authentication pattern used by all CLI handlers (queries, property listing, property selection).
 
 **Detailed Implementation**: See [context-auth.md](./context-auth.md) for complete authentication system details.
 
@@ -285,14 +342,14 @@ export async function ensureAuthentication(cfg) {
 
 **API Endpoints**: See [context-api.md](./context-api.md) for complete API documentation and JWT authentication details.
 
-**Site Selection**: See [context-site-selection.md](./context-site-selection.md) for complete site selection system details.
+**Property Selection**: See [context-site-selection.md](./context-site-selection.md) for complete property selection system details.
 
 ## Configuration
 
-Environment variables in `.env` (now optional with site selection):
+Environment variables in `.env` (now optional with property selection):
 ```bash
-GSC_SITE_URL=https://yourdomain.com/  # Optional - CLI will prompt if not set
-GSC_CREDENTIALS_FILE=./env/client_secret_*.json
+GA_PROPERTY_ID=123456789  # Optional - CLI will prompt if not set
+GA_CREDENTIALS_FILE=./env/client_secret_*.json
 ```
 
 OAuth2 credentials file structure:
@@ -504,9 +561,9 @@ app.post('/api/query/adhoc', authenticateJWT, runAdhocQuery);
 ### Core Features
 - ✅ **OAuth2 Authentication** - Browser-based consent flow with SQLite token storage
 - ✅ **Interactive Menu** - Enhanced CLI with separate query options
-- ✅ **Smart Site Selection** - Interactive site selection with SQLite memory
+- ✅ **Smart Property Selection** - Interactive property selection with SQLite memory
 - ✅ **Continuous CLI Loop** - Returns to main menu after each action
-- ✅ **Direct API Calls** - Bypassed Google APIs client library issues
+- ✅ **Direct REST API Calls** - Bypassed Google Analytics client library OAuth2 issues
 - ✅ **Flexible Output** - Table, JSON, CSV with smart sorting and formatting
 
 ## Development
@@ -520,7 +577,9 @@ npm run format      # Prettier
 
 ## Dependencies
 
-- `@googleapis/searchconsole` - Google Search Console API
+- `@googleapis/analyticsdata` - Google Analytics Data API
+- `@googleapis/analyticsadmin` - Google Analytics Admin API
+- `@googleapis/searchconsole` - Google Search Console API (legacy)
 - `google-auth-library` - OAuth2 authentication
 - `better-sqlite3` - SQLite database for user data storage
 - `inquirer` - CLI prompts and interactive interfaces

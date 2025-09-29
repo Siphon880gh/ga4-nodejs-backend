@@ -2,7 +2,7 @@
 
 ## Overview
 
-Interactive command-line interface built with Inquirer.js providing menu-driven access to Google Search Console data with OAuth2 authentication.
+Interactive command-line interface built with Inquirer.js providing menu-driven access to Google Analytics 4 data with OAuth2 authentication.
 
 ## Menu System
 
@@ -15,11 +15,11 @@ const base = [
     name: "action",
     message: "What would you like to do?",
     choices: [
-      { name: "Ad-hoc query", value: "adhoc" },
-      { name: "Report query", value: "preset" },
-      { name: "List available sites", value: "sites" },
-      { name: "Select/Change site", value: "select_site" },
-      { name: "Sign in with Google Account that has verified access to GSC", value: "auth" },
+      { name: "Analytics Query: Ad-hoc", value: "adhoc" },
+      { name: "Analytics Query: Report", value: "preset" },
+      { name: "Analytics List properties", value: "sites" },
+      { name: "Analytics Select property", value: "select_site" },
+      { name: "Sign in with Google Account that has access to Analytics", value: "auth" },
       { name: "Sign out", value: "signout" },
       { name: "Exit", value: "exit" },
     ],
@@ -38,7 +38,7 @@ Query options are now direct root menu items - no conditional prompts needed:
 
 ### 1. Preset Queries (`src/cli/prompts.js:36-102`)
 
-Built-in SEO analytics queries with predefined parameters:
+Built-in GA4 analytics queries with predefined parameters:
 
 ```javascript
 export async function buildPresetPrompts(cfg, source) {
@@ -87,48 +87,48 @@ export async function buildAdhocPrompts(cfg, source) {
 }
 ```
 
-## Site Selection
+## Property Selection
 
-### Site Selection Handler (`src/cli/index.js:81-103`)
+### Property Selection Handler (`src/cli/index.js:81-103`)
 
 ```javascript
-async function handleSiteSelection(cfg) {
-  const spinner = ora("Fetching available sites...").start();
+async function handlePropertySelection(cfg) {
+  const spinner = ora("Fetching available properties...").start();
   try {
-    // Fetch sites first
-    const verifiedSites = await getVerifiedSites(cfg);
-    spinner.succeed(`Found ${verifiedSites.length} verified sites`);
+    // Fetch properties first
+    const verifiedProperties = await getVerifiedProperties(cfg);
+    spinner.succeed(`Found ${verifiedProperties.length} verified properties`);
     
-    // Build prompts with the fetched sites
-    const answers = await inquirer.prompt(buildSiteSelectionPrompts(verifiedSites));
+    // Build prompts with the fetched properties
+    const answers = await inquirer.prompt(buildPropertySelectionPrompts(verifiedProperties));
     
-    const success = saveSelectedSite(answers.selectedSite);
+    const success = saveSelectedProperty(answers.selectedProperty);
     if (success) {
-      console.log(chalk.green(`Selected site: ${answers.selectedSite}`));
-      console.log(chalk.blue("This site will be used for all queries until you change it."));
+      console.log(chalk.green(`Selected property: ${answers.selectedProperty}`));
+      console.log(chalk.blue("This property will be used for all queries until you change it."));
     }
   } catch (error) {
-    spinner.fail("Site selection failed");
+    spinner.fail("Property selection failed");
     console.error(chalk.red(error.message));
   }
 }
 ```
 
-### Site Selection Prompts (`src/cli/prompts.js:50-72`)
+### Property Selection Prompts (`src/cli/prompts.js:50-72`)
 
 ```javascript
-export function buildSiteSelectionPrompts(verifiedSites) {
+export function buildPropertySelectionPrompts(verifiedProperties) {
   return [
     {
       type: "list",
-      name: "selectedSite",
-      message: "Select a Google Search Console property",
-      choices: verifiedSites.map(site => ({
-        name: `${site.siteUrl} (${site.permissionLevel})`,
-        value: site.siteUrl,
-        short: site.siteUrl
+      name: "selectedProperty",
+      message: "Select a Google Analytics property",
+      choices: verifiedProperties.map(property => ({
+        name: `${property.displayName} (${property.propertyId})`,
+        value: property.propertyId,
+        short: property.displayName
       })),
-      default: currentSite ? verifiedSites.findIndex(site => site.siteUrl === currentSite) : 0,
+      default: currentProperty ? verifiedProperties.findIndex(property => property.propertyId === currentProperty) : 0,
     }
   ];
 }
@@ -153,21 +153,22 @@ async function handleAuthentication(cfg) {
 }
 ```
 
-### Site Listing Handler (`src/cli/index.js:47-62`)
+### Property Listing Handler (`src/cli/index.js:47-62`)
 
 ```javascript
-async function handleListSites(cfg) {
-  const spinner = ora("Fetching available sites...").start();
+async function handleListProperties(cfg) {
+  const spinner = ora("Fetching available properties...").start();
   try {
-    const sites = await getAvailableSites(cfg);
-    spinner.succeed(`Found ${sites.length} sites`);
+    const properties = await getAvailableProperties(cfg);
+    spinner.succeed(`Found ${properties.length} properties`);
     
-    sites.forEach((site, index) => {
-      console.log(`${index + 1}. ${chalk.cyan(site.siteUrl)}`);
-      console.log(`   Permission Level: ${chalk.gray(site.permissionLevel)}`);
+    properties.forEach((property, index) => {
+      console.log(`${index + 1}. ${chalk.cyan(property.displayName)}`);
+      console.log(`   Property ID: ${chalk.gray(property.propertyId)}`);
+      console.log(`   Account: ${chalk.gray(property.accountName)}`);
     });
   } catch (error) {
-    spinner.fail("Failed to fetch sites");
+    spinner.fail("Failed to fetch properties");
   }
 }
 ```
@@ -297,12 +298,12 @@ try {
 export function validateConfig(cfg) {
   const errors = [];
 
-  if (cfg.sources.searchconsole?.enabled) {
-    if (!cfg.sources.searchconsole.siteUrl && !process.env.GSC_SITE_URL) {
-      errors.push("GSC site URL is required");
+  if (cfg.sources.analytics?.enabled) {
+    if (!cfg.sources.analytics.propertyId && !process.env.GA_PROPERTY_ID) {
+      errors.push("GA4 property ID is required");
     }
-    if (!cfg.sources.searchconsole.credentialsFile && !process.env.GSC_CREDENTIALS_FILE) {
-      errors.push("GSC credentials are required");
+    if (!cfg.sources.analytics.credentialsFile && !process.env.GA_CREDENTIALS_FILE) {
+      errors.push("GA4 credentials are required");
     }
   }
 

@@ -16,7 +16,7 @@ import { loadConfig } from "../utils/config.js";
 import { buildPrompts, buildPresetPrompts, buildAdhocPrompts, buildSiteSelectionPrompts, buildSortingPrompts, displaySortingFeedback } from "./prompts.js";
 import { runQuery } from "../core/query-runner.js";
 import { renderOutput } from "./renderers.js";
-import { getOAuth2Client, getAvailableSites } from "../datasources/searchconsole.js";
+import { getOAuth2Client, getAvailableProperties } from "../datasources/analytics.js";
 import { saveSelectedSite, getSelectedSite, hasValidSiteSelection, clearSelectedSite, getVerifiedSites, signOut } from "../utils/site-manager.js";
 import { ensureAuthentication } from "../utils/auth-helper.js";
 import { getDatabase } from "../utils/database.js";
@@ -34,21 +34,21 @@ async function waitForEnter() {
 async function handleAuthentication(cfg) {
   const spinner = ora("Authenticating with Google...").start();
   try {
-    // Set a dummy site URL for authentication
-    const originalSiteUrl = process.env.GSC_SITE_URL;
-    process.env.GSC_SITE_URL = "https://example.com/";
+    // Set a dummy property ID for authentication
+    const originalPropertyId = process.env.GA_PROPERTY_ID;
+    process.env.GA_PROPERTY_ID = "123456789";
     
-    const auth = await getOAuth2Client(cfg.sources.searchconsole);
+    const auth = await getOAuth2Client(cfg.sources.analytics);
     
-    // Restore original site URL
-    if (originalSiteUrl) {
-      process.env.GSC_SITE_URL = originalSiteUrl;
+    // Restore original property ID
+    if (originalPropertyId) {
+      process.env.GA_PROPERTY_ID = originalPropertyId;
     } else {
-      delete process.env.GSC_SITE_URL;
+      delete process.env.GA_PROPERTY_ID;
     }
     
     spinner.succeed("Authentication successful!");
-    console.log(chalk.green("You are now authenticated with Google Search Console."));
+    console.log(chalk.green("You are now authenticated with Google Analytics."));
     console.log(chalk.blue("You can now run queries without re-authenticating."));
   } catch (error) {
     spinner.fail("Authentication failed");
@@ -58,23 +58,31 @@ async function handleAuthentication(cfg) {
 }
 
 async function handleListSites(cfg) {
-  const spinner = ora("Fetching available sites...").start();
+  const spinner = ora("Fetching available properties...").start();
   try {
     // Ensure authentication first
     await ensureAuthentication(cfg);
-    const sites = await getAvailableSites(cfg);
-    spinner.succeed(`Found ${sites.length} sites`);
     
-    if (sites.length === 0) {
-      console.log(chalk.yellow("No Google Search Console properties found."));
-      console.log(chalk.blue("Make sure you have access to Google Search Console properties."));
+    // Stop spinner to allow debugging output
+    spinner.stop();
+    console.log(chalk.blue("Starting properties fetch..."));
+    
+    const properties = await getAvailableProperties(cfg);
+    
+    // Restart spinner for success message
+    spinner.succeed(`Found ${properties.length} properties`);
+    
+    if (properties.length === 0) {
+      console.log(chalk.yellow("No Google Analytics properties found."));
+      console.log(chalk.blue("Make sure you have access to Google Analytics properties."));
     } else {
-      console.log(chalk.blue("\nAvailable Google Search Console properties:"));
+      console.log(chalk.blue("\nAvailable Google Analytics properties:"));
       console.log("==========================================");
       
-      sites.forEach((site, index) => {
-        console.log(`${index + 1}. ${chalk.cyan(site.siteUrl)}`);
-        console.log(`   Permission Level: ${chalk.gray(site.permissionLevel)}`);
+      properties.forEach((property, index) => {
+        console.log(`${index + 1}. ${chalk.cyan(property.displayName)}`);
+        console.log(`   Property ID: ${chalk.gray(property.propertyId)}`);
+        console.log(`   Account: ${chalk.gray(property.accountName)}`);
         console.log("");
       });
       
@@ -82,37 +90,37 @@ async function handleListSites(cfg) {
       if (currentSite) {
         console.log(chalk.green(`Currently selected: ${currentSite}`));
       } else {
-        console.log(chalk.blue("No site selected. Use 'Select/Change site' to choose a property."));
+        console.log(chalk.blue("No property selected. Use 'Select/Change property' to choose a property."));
       }
     }
   } catch (error) {
-    spinner.fail("Failed to fetch sites");
+    spinner.fail("Failed to fetch properties");
     console.error(chalk.red(error.message));
     process.exitCode = 1;
   }
 }
 
 async function handleSiteSelection(cfg) {
-  const spinner = ora("Fetching available sites...").start();
+  const spinner = ora("Fetching available properties...").start();
   try {
     // Ensure authentication first
     await ensureAuthentication(cfg);
-    // Fetch sites first
-    const verifiedSites = await getVerifiedSites(cfg);
-    spinner.succeed(`Found ${verifiedSites.length} verified sites`);
+    // Fetch properties first
+    const verifiedProperties = await getAvailableProperties(cfg);
+    spinner.succeed(`Found ${verifiedProperties.length} verified properties`);
     
-    // Build prompts with the fetched sites
-    const answers = await inquirer.prompt(buildSiteSelectionPrompts(verifiedSites));
+    // Build prompts with the fetched properties
+    const answers = await inquirer.prompt(buildSiteSelectionPrompts(verifiedProperties));
     
     const success = saveSelectedSite(answers.selectedSite);
     if (success) {
-      console.log(chalk.green(`Selected site: ${answers.selectedSite}`));
-      console.log(chalk.blue("This site will be used for all queries until you change it."));
+      console.log(chalk.green(`Selected property: ${answers.selectedSite}`));
+      console.log(chalk.blue("This property will be used for all queries until you change it."));
     } else {
-      console.log(chalk.red("Failed to save site selection"));
+      console.log(chalk.red("Failed to save property selection"));
     }
   } catch (error) {
-    spinner.fail("Site selection failed");
+    spinner.fail("Property selection failed");
     console.error(chalk.red(error.message));
     process.exitCode = 1;
   }
@@ -174,22 +182,22 @@ async function main() {
           continue;
         }
         
-        // Hardcode source to searchconsole since we only support GSC
-        const source = "searchconsole";
+        // Hardcode source to analytics since we only support Analytics
+        const source = "analytics";
         
-        // Check if we need to select a site for GSC queries
+        // Check if we need to select a property for Analytics queries
         if (!hasValidSiteSelection()) {
-          console.log(chalk.yellow("No Google Search Console site selected."));
-          console.log(chalk.blue("Please select a site first."));
+          console.log(chalk.yellow("No Google Analytics property selected."));
+          console.log(chalk.blue("Please select a property first."));
           await handleSiteSelection(cfg);
           await waitForEnter();
           continue;
         }
         
-        // Set the selected site as environment variable for the query
-        const selectedSite = getSelectedSite();
-        process.env.GSC_SITE_URL = selectedSite;
-        console.log(chalk.blue(`Using site: ${selectedSite}`));
+        // Set the selected property as environment variable for the query
+        const selectedProperty = getSelectedSite();
+        process.env.GA_PROPERTY_ID = selectedProperty;
+        console.log(chalk.blue(`Using property: ${selectedProperty}`));
         
         // Ensure authentication is available before running queries
         let auth;

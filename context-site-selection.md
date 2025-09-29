@@ -1,95 +1,95 @@
-# Site Selection - Technical Details
+# Property Selection - Technical Details
 
 ## Overview
 
-Interactive site selection system that allows users to choose Google Search Console properties and remembers their choice across CLI sessions. Eliminates the need for manual environment variable configuration.
+Interactive property selection system that allows users to choose Google Analytics 4 properties and remembers their choice across CLI sessions. Eliminates the need for manual environment variable configuration.
 
-## Site Manager (`src/utils/site-manager.js` - 83 lines)
+## Property Manager (`src/utils/property-manager.js` - 83 lines)
 
 ### Core Functions
 
 ```javascript
-// Get currently selected site
-export function getSelectedSite() {
-  if (!existsSync(SITE_CONFIG_PATH)) return null;
-  const config = JSON.parse(readFileSync(SITE_CONFIG_PATH, 'utf8'));
-  return config.siteUrl;
+// Get currently selected property
+export function getSelectedProperty() {
+  if (!existsSync(PROPERTY_CONFIG_PATH)) return null;
+  const config = JSON.parse(readFileSync(PROPERTY_CONFIG_PATH, 'utf8'));
+  return config.propertyId;
 }
 
-// Save selected site
-export function saveSelectedSite(siteUrl) {
-  const config = { siteUrl, selectedAt: new Date().toISOString() };
-  writeFileSync(SITE_CONFIG_PATH, JSON.stringify(config, null, 2));
+// Save selected property
+export function saveSelectedProperty(propertyId) {
+  const config = { propertyId, selectedAt: new Date().toISOString() };
+  writeFileSync(PROPERTY_CONFIG_PATH, JSON.stringify(config, null, 2));
   return true;
 }
 
-// Get verified sites only
-export async function getVerifiedSites(cfg) {
-  const sites = await getAvailableSites(cfg);
-  return sites.filter(site => 
-    site.permissionLevel === 'siteOwner' || site.permissionLevel === 'siteFullUser'
+// Get accessible properties only
+export async function getAccessibleProperties(cfg) {
+  const properties = await getAvailableProperties(cfg);
+  return properties.filter(property => 
+    property.accessLevel === 'owner' || property.accessLevel === 'editor'
   );
 }
 ```
 
-### Site Storage
+### Property Storage
 
-**File**: `.selected_site.json`
+**File**: `.selected_property.json`
 ```json
 {
-  "siteUrl": "https://example.com/",
+  "propertyId": "123456789",
   "selectedAt": "2025-01-27T10:30:00.000Z"
 }
 ```
 
 ## CLI Integration
 
-### Site Selection Handler (`src/cli/index.js:81-103`)
+### Property Selection Handler (`src/cli/index.js:81-103`)
 
 ```javascript
-async function handleSiteSelection(cfg) {
-  const spinner = ora("Fetching available sites...").start();
+async function handlePropertySelection(cfg) {
+  const spinner = ora("Fetching available properties...").start();
   try {
-    // Fetch sites first
-    const verifiedSites = await getVerifiedSites(cfg);
-    spinner.succeed(`Found ${verifiedSites.length} verified sites`);
+    // Fetch properties first
+    const accessibleProperties = await getAccessibleProperties(cfg);
+    spinner.succeed(`Found ${accessibleProperties.length} accessible properties`);
     
-    // Build prompts with the fetched sites
-    const answers = await inquirer.prompt(buildSiteSelectionPrompts(verifiedSites));
+    // Build prompts with the fetched properties
+    const answers = await inquirer.prompt(buildPropertySelectionPrompts(accessibleProperties));
     
-    const success = saveSelectedSite(answers.selectedSite);
+    const success = saveSelectedProperty(answers.selectedProperty);
     if (success) {
-      console.log(chalk.green(`Selected site: ${answers.selectedSite}`));
-      console.log(chalk.blue("This site will be used for all queries until you change it."));
+      console.log(chalk.green(`Selected property: ${answers.selectedProperty}`));
+      console.log(chalk.blue("This property will be used for all queries until you change it."));
     }
   } catch (error) {
-    spinner.fail("Site selection failed");
+    spinner.fail("Property selection failed");
     console.error(chalk.red(error.message));
   }
 }
 ```
 
-### Site Selection Prompts (`src/cli/prompts.js:50-72`)
+### Property Selection Prompts (`src/cli/prompts.js:50-72`)
 
 ```javascript
-export function buildSiteSelectionPrompts(verifiedSites) {
-  if (verifiedSites.length === 0) {
-    throw new Error("No verified Google Search Console properties found.");
+export function buildPropertySelectionPrompts(accessibleProperties) {
+  if (accessibleProperties.length === 0) {
+    throw new Error("No accessible Google Analytics properties found.");
   }
 
-  const currentSite = getSelectedSite();
+  const currentProperty = getSelectedProperty();
   
   return [
     {
       type: "list",
-      name: "selectedSite",
-      message: "Select a Google Search Console property",
-      choices: verifiedSites.map(site => ({
-        name: `${site.siteUrl} (${site.permissionLevel})`,
-        value: site.siteUrl,
-        short: site.siteUrl
+      name: "selectedProperty",
+      message: "Select a Google Analytics property",
+      choices: accessibleProperties.map(property => ({
+        name: `${property.displayName} (${property.propertyId})`,
+        value: property.propertyId,
+        short: property.displayName
       })),
-      default: currentSite ? verifiedSites.findIndex(site => site.siteUrl === currentSite) : 0,
+      default: currentProperty ? accessibleProperties.findIndex(property => property.propertyId === currentProperty) : 0,
     }
   ];
 }
@@ -97,59 +97,59 @@ export function buildSiteSelectionPrompts(verifiedSites) {
 
 ## Query Integration
 
-### Automatic Site Usage (`src/cli/index.js:152-160`)
+### Automatic Property Usage (`src/cli/index.js:152-160`)
 
 ```javascript
-// Check if we need to select a site for GSC queries
-if (initialAnswers.source === "searchconsole") {
-  if (!hasValidSiteSelection()) {
-    console.log(chalk.yellow("No Google Search Console site selected."));
-    console.log(chalk.blue("Please select a site first."));
-    await handleSiteSelection(cfg);
+// Check if we need to select a property for GA4 queries
+if (initialAnswers.source === "analytics") {
+  if (!hasValidPropertySelection()) {
+    console.log(chalk.yellow("No Google Analytics property selected."));
+    console.log(chalk.blue("Please select a property first."));
+    await handlePropertySelection(cfg);
     await waitForEnter();
     continue;
   }
   
-  // Set the selected site as environment variable for the query
-  const selectedSite = getSelectedSite();
-  process.env.GSC_SITE_URL = selectedSite;
-  console.log(chalk.blue(`Using site: ${selectedSite}`));
+  // Set the selected property as environment variable for the query
+  const selectedProperty = getSelectedProperty();
+  process.env.GA_PROPERTY_ID = selectedProperty;
+  console.log(chalk.blue(`Using property: ${selectedProperty}`));
 }
 ```
 
 ## User Experience Flow
 
-1. **First Time**: User runs GSC query → CLI prompts to select site
-2. **Site Selection**: Interactive list shows verified properties with permission levels
-3. **Memory**: Selection saved to `.selected_site.json`
-4. **Automatic Usage**: Selected site used for all future queries
-5. **Easy Changes**: "Select/Change site" menu option to switch sites
+1. **First Time**: User runs GA4 query → CLI prompts to select property
+2. **Property Selection**: Interactive list shows accessible properties with account info
+3. **Memory**: Selection saved to `.selected_property.json`
+4. **Automatic Usage**: Selected property used for all future queries
+5. **Easy Changes**: "Select/Change property" menu option to switch properties
 
 ## Features
 
-- **Verified Properties Only**: Filters to show only properties with full access
+- **Accessible Properties Only**: Filters to show only properties with proper access
 - **Persistent Memory**: Remembers selection across CLI sessions
 - **Interactive Selection**: Arrow key navigation with inquirer
-- **Permission Display**: Shows permission level for each property
-- **Default Selection**: Highlights currently selected site
+- **Account Display**: Shows account name and property details
+- **Default Selection**: Highlights currently selected property
 - **Error Handling**: Graceful handling of API failures
 
 ## Configuration
 
 ### Environment Variables (Now Optional)
 ```bash
-GSC_SITE_URL=https://yourdomain.com/  # Optional - CLI will prompt if not set
-GSC_CREDENTIALS_FILE=./env/client_secret_*.json
+GA_PROPERTY_ID=123456789  # Optional - CLI will prompt if not set
+GA_CREDENTIALS_FILE=./env/client_secret_*.json
 ```
 
 ### Git Ignore
 ```gitignore
-.selected_site.json  # User's site selection
+.selected_property.json  # User's property selection
 ```
 
 ## Error Handling
 
-- **No Sites Found**: Clear error message with guidance
+- **No Properties Found**: Clear error message with guidance
 - **API Failures**: Graceful fallback with retry options
 - **Invalid Selection**: Validation and re-prompting
 - **File System Errors**: Proper error messages for storage issues
@@ -159,5 +159,5 @@ GSC_CREDENTIALS_FILE=./env/client_secret_*.json
 - **No Manual Configuration**: Eliminates need to edit `.env` files
 - **User-Friendly**: Interactive selection with clear options
 - **Persistent**: Remembers choice across sessions
-- **Flexible**: Easy to change sites anytime
-- **Verified Only**: Only shows properties with proper access
+- **Flexible**: Easy to change properties anytime
+- **Accessible Only**: Only shows properties with proper access

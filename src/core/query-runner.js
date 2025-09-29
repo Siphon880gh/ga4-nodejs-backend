@@ -1,5 +1,6 @@
 import runBQ from "../datasources/bigquery.js";
 import runGSC from "../datasources/searchconsole.js";
+import runAnalytics from "../datasources/analytics.js";
 import { validateQuery } from "../cli/validators.js";
 
 /**
@@ -23,7 +24,9 @@ export async function runQuery(answers, cfg, auth = null) {
   }
 
   // Route to appropriate data source
-  if (normalized.source === "searchconsole") {
+  if (normalized.source === "analytics") {
+    return runAnalytics(normalized, cfg, auth);
+  } else if (normalized.source === "searchconsole") {
     return runGSC(normalized, cfg, auth);
   } else if (normalized.source === "bigquery") {
     return runBQ(normalized, cfg);

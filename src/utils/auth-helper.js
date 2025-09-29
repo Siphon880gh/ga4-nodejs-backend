@@ -1,4 +1,4 @@
-import { getOAuth2Client } from "../datasources/searchconsole.js";
+import { getOAuth2Client } from "../datasources/analytics.js";
 import chalk from "chalk";
 
 /**
@@ -6,10 +6,10 @@ import chalk from "chalk";
  * This ensures the authentication is fresh and working
  */
 export async function getAuthenticatedClient(cfg) {
-  const gscConfig = cfg.sources.searchconsole;
+  const analyticsConfig = cfg.sources.analytics;
   
   // Get OAuth2 client
-  const auth = await getOAuth2Client(gscConfig);
+  const auth = await getOAuth2Client(analyticsConfig);
   
   // Ensure the auth client is properly authenticated by getting a fresh token
   await auth.getAccessToken();

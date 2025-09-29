@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { getAvailableSites } from '../datasources/searchconsole.js';
+import { getAvailableProperties } from '../datasources/analytics.js';
 import { getSiteForUser, storeSiteForUser } from './database.js';
 import config from '../../config.js';
 
@@ -31,20 +31,16 @@ export function saveSelectedSite(siteUrl) {
 }
 
 /**
- * Get available sites and filter for verified properties only
+ * Get available properties (no filtering needed for Analytics)
  */
 export async function getVerifiedSites(cfg) {
   try {
-    const sites = await getAvailableSites(cfg);
+    const properties = await getAvailableProperties(cfg);
     
-    // Filter for verified properties only (permissionLevel: 'siteOwner' or 'siteFullUser')
-    const verifiedSites = sites.filter(site => 
-      site.permissionLevel === 'siteOwner' || site.permissionLevel === 'siteFullUser'
-    );
-    
-    return verifiedSites;
+    // Analytics properties don't need permission filtering like GSC
+    return properties;
   } catch (error) {
-    throw new Error(`Failed to fetch sites: ${error.message}`);
+    throw new Error(`Failed to fetch properties: ${error.message}`);
   }
 }
 

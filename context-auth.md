@@ -2,7 +2,7 @@
 
 ## Overview
 
-Comprehensive authentication system supporting both OAuth2 for CLI and JWT for API endpoints. Features SQLite database storage for scalable user data management, direct API requests that bypass Google APIs client library issues, and user-isolated authentication with consistent patterns across all interfaces.
+Comprehensive authentication system supporting both OAuth2 for CLI and JWT for API endpoints. Features SQLite database storage for scalable user data management, direct REST API requests that bypass Google Analytics client library OAuth2 issues, and user-isolated authentication with consistent patterns across all interfaces.
 
 ## Authentication Helper (`src/utils/auth-helper.js` - 32 lines)
 
@@ -14,10 +14,10 @@ Comprehensive authentication system supporting both OAuth2 for CLI and JWT for A
  * This ensures the authentication is fresh and working
  */
 export async function getAuthenticatedClient(cfg) {
-  const gscConfig = cfg.sources.searchconsole;
+  const analyticsConfig = cfg.sources.analytics;
   
   // Get OAuth2 client
-  const auth = await getOAuth2Client(gscConfig);
+  const auth = await getOAuth2Client(analyticsConfig);
   
   // Ensure the auth client is properly authenticated by getting a fresh token
   await auth.getAccessToken();
@@ -44,20 +44,26 @@ export async function ensureAuthentication(cfg) {
 
 ### Why Direct Requests?
 
-The Google APIs client library has authentication issues. All functions use direct OAuth2 client requests for reliability:
+The Google Analytics client libraries have OAuth2 compatibility issues. All functions use direct REST API calls with OAuth2 Bearer tokens for reliability:
 
 ```javascript
-// Site listing (working pattern)
-const response = await auth.request({
-  url: 'https://searchconsole.googleapis.com/webmasters/v3/sites',
-  method: 'GET'
+// Property listing (working pattern)
+const response = await fetch('https://analyticsadmin.googleapis.com/v1beta/accountSummaries', {
+  method: 'GET',
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  }
 });
 
-// Query execution (fixed to match working pattern)
-const response = await auth.request({
-  url: `https://searchconsole.googleapis.com/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`,
+// Query execution (working pattern)
+const response = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`, {
   method: 'POST',
-  data: requestBody
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify(requestBody)
 });
 ```
 
@@ -90,7 +96,7 @@ async function handleAuthentication(cfg) {
     const originalSiteUrl = process.env.GSC_SITE_URL;
     process.env.GSC_SITE_URL = "https://example.com/";
     
-    const auth = await getOAuth2Client(cfg.sources.searchconsole);
+    const auth = await getOAuth2Client(cfg.sources.analytics);
     
     // Restore original site URL
     if (originalSiteUrl) {
@@ -100,7 +106,7 @@ async function handleAuthentication(cfg) {
     }
     
     spinner.succeed("Authentication successful!");
-    console.log(chalk.green("You are now authenticated with Google Search Console."));
+    console.log(chalk.green("You are now authenticated with Google Analytics."));
     console.log(chalk.blue("You can now run queries without re-authenticating."));
   } catch (error) {
     spinner.fail("Authentication failed");
@@ -121,17 +127,17 @@ async function handleAuthentication(cfg) {
 All CLI handlers use the same authentication pattern:
 
 ```javascript
-// Site listing handler
-async function handleListSites(cfg) {
+// Property listing handler
+async function handleListProperties(cfg) {
   await ensureAuthentication(cfg);
-  const sites = await getAvailableSites(cfg);
+  const properties = await getAvailableProperties(cfg);
   // ...
 }
 
-// Site selection handler  
-async function handleSiteSelection(cfg) {
+// Property selection handler  
+async function handlePropertySelection(cfg) {
   await ensureAuthentication(cfg);
-  const verifiedSites = await getVerifiedSites(cfg);
+  const accessibleProperties = await getAccessibleProperties(cfg);
   // ...
 }
 
@@ -169,7 +175,10 @@ await oauth2Client.getAccessToken();
 ```javascript
 const authUrl = oauth2Client.generateAuthUrl({
   access_type: 'offline',
-  scope: ['https://www.googleapis.com/auth/webmasters.readonly'],
+  scope: [
+    'https://www.googleapis.com/auth/analytics.readonly',
+    'https://www.googleapis.com/auth/bigquery.readonly'
+  ],
   prompt: 'consent'
 });
 
@@ -204,7 +213,7 @@ export default {
 ### Database Schema
 
 **Database File**: `gsc_auth.db` (SQLite)  
-**Purpose**: Store OAuth2 tokens and site selections per user  
+**Purpose**: Store OAuth2 tokens and property selections per user  
 **Tables**:
 
 #### 1. OAuth2 Tokens Table (`oauth_tokens`)
@@ -227,24 +236,24 @@ CREATE TABLE oauth_tokens (
 ```sql
 INSERT INTO oauth_tokens (user_id, access_token, refresh_token, scope, expiry_date) 
 VALUES (1, 'ya29.a0AQQ_BDQXhCzEe...', '1//065QYP8UqCUtHCgYIARAAGAYSNgF...', 
-        'https://www.googleapis.com/auth/webmasters.readonly', 1759059731582);
+        'https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/bigquery.readonly', 1759059731582);
 ```
 
-#### 2. Site Selection Table (`selected_sites`)
+#### 2. Property Selection Table (`selected_properties`)
 
 ```sql
-CREATE TABLE selected_sites (
+CREATE TABLE selected_properties (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id INTEGER NOT NULL,
-  site_url TEXT NOT NULL,
+  property_id TEXT NOT NULL,
   selected_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
 **Sample Data**:
 ```sql
-INSERT INTO selected_sites (user_id, site_url) 
-VALUES (1, 'https://example.com/');
+INSERT INTO selected_properties (user_id, property_id) 
+VALUES (1, '123456789');
 ```
 
 ### Database Operations
@@ -260,14 +269,14 @@ await db.run(`
      tokens.scope, tokens.token_type, tokens.expiry_date]);
 ```
 
-**Site Selection Storage**:
+**Property Selection Storage**:
 ```javascript
-// Save selected site to database
+// Save selected property to database
 await db.run(`
-  INSERT OR REPLACE INTO selected_sites 
-  (user_id, site_url, selected_at)
+  INSERT OR REPLACE INTO selected_properties 
+  (user_id, property_id, selected_at)
   VALUES (?, ?, ?)
-`, [userId, siteUrl, new Date().toISOString()]);
+`, [userId, propertyId, new Date().toISOString()]);
 ```
 
 **Token Retrieval**:
@@ -279,11 +288,11 @@ const tokenRow = await db.get(
 );
 ```
 
-**Site Retrieval**:
+**Property Retrieval**:
 ```javascript
-// Get selected site for user
-const siteRow = await db.get(
-  'SELECT * FROM selected_sites WHERE user_id = ? ORDER BY selected_at DESC LIMIT 1',
+// Get selected property for user
+const propertyRow = await db.get(
+  'SELECT * FROM selected_properties WHERE user_id = ? ORDER BY selected_at DESC LIMIT 1',
   [userId]
 );
 ```
@@ -348,10 +357,10 @@ db.exec(`
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
   
-  CREATE TABLE IF NOT EXISTS selected_sites (
+  CREATE TABLE IF NOT EXISTS selected_properties (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
-    site_url TEXT NOT NULL,
+    property_id TEXT NOT NULL,
     selected_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 `);
@@ -369,11 +378,11 @@ await storeTokensForUser(userId, tokens);
 // Retrieve tokens for specific user
 const tokens = await getTokensForUser(userId);
 
-// Store site selection for specific user
-await storeSiteForUser(userId, siteUrl);
+// Store property selection for specific user
+await storePropertyForUser(userId, propertyId);
 
-// Retrieve site selection for specific user
-const siteUrl = await getSiteForUser(userId);
+// Retrieve property selection for specific user
+const propertyId = await getPropertyForUser(userId);
 ```
 
 ## Error Handling
@@ -404,9 +413,9 @@ try {
 
 - **Token Storage**: Local file with restricted permissions
 - **HTTPS Only**: All API calls use HTTPS
-- **Scope Limitation**: Read-only access to Search Console
+- **Scope Limitation**: Read-only access to Analytics and BigQuery
 - **Token Expiry**: Automatic refresh prevents long-lived tokens
-- **Direct Requests**: Bypasses Google APIs client library security issues
+- **Direct REST API**: Bypasses Google Analytics client library OAuth2 issues
 
 ## JWT Authentication System
 
@@ -543,7 +552,7 @@ async function validateUserSession(userId, token) {
 
 - **Dual Authentication**: OAuth2 for CLI, JWT for API
 - **Consistent Authentication**: Same pattern used across all functions
-- **Reliable Requests**: Direct OAuth2 requests bypass client library issues
+- **Reliable Requests**: Direct REST API calls bypass client library OAuth2 issues
 - **Fresh Tokens**: Ensures authentication is always current
 - **Error Handling**: Comprehensive error management and user guidance
 - **Reusable Code**: Single source of truth for authentication logic

@@ -19,11 +19,11 @@ export async function buildPrompts(cfg) {
       name: "action",
       message: "What would you like to do?",
       choices: [
-        { name: "GSC Query: Ad-hoc", value: "adhoc" },
-        { name: "GSC Query: Report", value: "preset" },
-        { name: "GSC List sites", value: "sites" },
-        { name: "GSC Select site", value: "select_site" },
-        { name: "Sign in with Google Account that has verified access to GSC", value: "auth" },
+        { name: "Analytics Query: Ad-hoc", value: "adhoc" },
+        { name: "Analytics Query: Report", value: "preset" },
+        { name: "Analytics List properties", value: "sites" },
+        { name: "Analytics Select property", value: "select_site" },
+        { name: "Sign in with Google Account that has access to Analytics", value: "auth" },
         { name: "Sign out", value: "signout" },
         { name: "Exit", value: "exit" },
       ],
@@ -35,7 +35,7 @@ export async function buildPrompts(cfg) {
 
 export function buildSiteSelectionPrompts(verifiedSites) {
   if (verifiedSites.length === 0) {
-    throw new Error("No verified Google Search Console properties found. Make sure you have access to GSC properties.");
+    throw new Error("No verified Google Analytics properties found. Make sure you have access to Analytics properties.");
   }
 
   const currentSite = getSelectedSite();
@@ -44,13 +44,13 @@ export function buildSiteSelectionPrompts(verifiedSites) {
     {
       type: "list",
       name: "selectedSite",
-      message: "Select a Google Search Console property",
+      message: "Select a Google Analytics property",
       choices: verifiedSites.map(site => ({
-        name: `${site.siteUrl} (${site.permissionLevel})`,
-        value: site.siteUrl,
-        short: site.siteUrl
+        name: `${site.displayName} (${site.propertyId})`,
+        value: site.propertyId,
+        short: site.displayName
       })),
-      default: currentSite ? verifiedSites.findIndex(site => site.siteUrl === currentSite) : 0,
+      default: currentSite ? verifiedSites.findIndex(site => site.propertyId === currentSite) : 0,
     }
   ];
 }
@@ -153,7 +153,7 @@ export async function buildAdhocPrompts(cfg, source) {
       name: "metrics",
       message: "Select metrics",
       choices: metrics,
-      default: ["clicks", "impressions", "ctr", "position"],
+      default: ["sessions", "users", "pageviews", "bounceRate"],
       validate: (input) => {
         if (input.length === 0) {
           return "Please select at least one metric";
