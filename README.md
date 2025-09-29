@@ -10,6 +10,7 @@ A Node.js CLI tool for querying Google Analytics 4 data with optional BigQuery i
 • **JWT Authentication** with secure token-based authentication for production API deployment
 • **Multi-User Support** with complete user isolation and separate authentication per user
 • **OAuth2 Authentication** with SQLite database storage for scalable user data management
+• **Consistent REST API** with direct API calls ensuring reliable authentication across all features
 • **Smart Pagination** with 50 rows per page, interactive navigation, and flexible exit options
 • **Advanced Sorting System** with multi-level sorting, column selection, and real-time feedback
 • **Multiple Data Sources** supporting Google Analytics 4 and BigQuery

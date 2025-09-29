@@ -44,20 +44,34 @@ export default async function runAnalytics(query, cfg, auth = null) {
     console.log(chalk.blue(`Querying Analytics property ${propertyId}...`));
     console.log(chalk.gray(`Request body:`, JSON.stringify(requestBody, null, 2)));
     
-    // Create Analytics Data API client
-    const analytics = analyticsdata({
-      version: 'v1beta',
-      auth: auth
-    });
-
-    // Make the API call
-    const response = await analytics.properties.runReport({
-      property: `properties/${propertyId}`,
-      requestBody: requestBody
+    // Use REST API directly with OAuth2 instead of client libraries
+    console.log("Using REST API directly with OAuth2...");
+    
+    // Get fresh access token
+    const accessToken = await auth.getAccessToken();
+    const token = accessToken.token;
+    
+    console.log("Making direct REST API call to runReport...");
+    
+    // Make direct REST API call
+    const response = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestBody)
     });
     
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+    
+    const responseData = await response.json();
+    
     // Transform response to array of objects
-    let rows = (response.data.rows || []).map(row => {
+    let rows = (responseData.rows || []).map(row => {
       const result = {};
       
       // Add dimensions

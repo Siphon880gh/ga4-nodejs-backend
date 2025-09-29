@@ -9,7 +9,7 @@ A Node.js application for querying Google Analytics 4 data with OAuth2 authentic
 ## Tech Stack
 
 - **Runtime**: Node.js 18+ with ES modules
-- **Authentication**: OAuth2 with Google APIs client library + JWT for API
+- **Authentication**: OAuth2 with direct REST API calls + JWT for API
 - **Database**: SQLite with better-sqlite3 for user data storage
 - **CLI Interface**: Inquirer.js for interactive prompts
 - **API Server**: Express.js with JWT authentication middleware
@@ -30,8 +30,6 @@ src/
 
 ### Dual Interface Support
 
-The application now supports both CLI and REST API interfaces:
-
 - **CLI Interface**: Interactive command-line tool for direct usage
 - **REST API**: HTTP endpoints for integration with other applications
 - **JWT Authentication**: Secure token-based authentication for production use
@@ -39,47 +37,27 @@ The application now supports both CLI and REST API interfaces:
 
 ## Key Files
 
-### CLI Interface
-- **`src/cli/index.js`** (248 lines) - Main CLI entry point with pagination and enhanced UX
-- **`src/cli/prompts.js`** (354 lines) - Interactive prompts with advanced sorting and column selection
-- **`src/cli/renderers.js`** (212 lines) - Output rendering with pagination, smart sorting and number formatting
-
-### API Server
-- **`src/api/server.js`** (66 lines) - Main API server with JWT authentication
+### Core Components
+- **`src/cli/index.js`** (248 lines) - Main CLI entry point with continuous loop
+- **`src/datasources/analytics.js`** (390 lines) - GA4 API with direct REST API calls
 - **`src/api/jwt-routes.js`** (710 lines) - JWT authentication routes and middleware
-- **`src/api/auth-middleware.js`** (162 lines) - JWT authentication middleware
+- **`src/utils/database.js`** (114 lines) - SQLite database operations
+- **`config.js`** (211 lines) - Configuration with GA4 presets
 
-### Data Sources & Core
-- **`src/datasources/analytics.js`** (376 lines) - GA4 API with OAuth2 authentication and property listing
-- **`src/datasources/searchconsole.js`** (361 lines) - GSC API with client-side sorting and OAuth2 requests
-- **`src/core/query-runner.js`** (96 lines) - Query execution with preset/ad-hoc handling
-- **`src/core/presets.js`** - Preset query definitions
-- **`src/core/schema.js`** - Data schema definitions
-
-### Utilities
-- **`src/utils/site-manager.js`** (111 lines) - Site selection and SQLite storage utilities
-- **`src/utils/auth-helper.js`** (33 lines) - Reusable authentication utilities
-- **`src/utils/database.js`** (114 lines) - SQLite database operations for user data
-- **`src/utils/config.js`** - Configuration utilities
-- **`src/utils/logger.js`** - Logging utilities
-
-### Configuration & Database
-- **`config.js`** (146 lines) - Configuration with impressions-based presets
-- **`callback.html`** (143 lines) - OAuth2 callback page
-- **`gsc_auth.db`** - SQLite database for user authentication and site data
+**Detailed Implementation**: See feature-specific context files for complete technical details.
 
 ## GA4 Migration Lessons Learned
 
 ### Critical Authentication Issues Resolved
 
-**Problem**: Google Analytics Admin API client libraries have OAuth2 compatibility issues:
+**Problem**: Google Analytics client libraries have OAuth2 compatibility issues:
 - `@google-analytics/admin` package hangs on API calls with OAuth2
-- `googleapis` package with `analyticsadmin` service has authentication errors
+- `googleapis` package with `analyticsdata` service has "Login Required" errors
 - Client libraries designed for service accounts, not OAuth2 user credentials
 
-**Solution**: Use REST API directly with OAuth2 Bearer tokens:
+**Solution**: Use REST API directly with OAuth2 Bearer tokens for ALL operations:
 ```javascript
-// Direct REST API call (works reliably with OAuth2)
+// Property listing (working pattern)
 const response = await fetch('https://analyticsadmin.googleapis.com/v1beta/accountSummaries', {
   method: 'GET',
   headers: {
@@ -87,12 +65,22 @@ const response = await fetch('https://analyticsadmin.googleapis.com/v1beta/accou
     'Content-Type': 'application/json'
   }
 });
+
+// Query execution (working pattern) 
+const response = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`, {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify(requestBody)
+});
 ```
 
 **Key Learnings**:
-1. **Don't assume authentication issues** - Hanging was client library problem, not auth
+1. **Consistent API approach** - Use direct REST API calls for both property listing AND data queries
 2. **REST API is more reliable** - Raw HTTP calls work better than client libraries for OAuth2
-3. **Service accounts vs OAuth2** - Admin API designed for service accounts, but REST API works with OAuth2
+3. **Service accounts vs OAuth2** - Client libraries designed for service accounts, but REST API works with OAuth2
 4. **Avoid client library complexity** - Direct API calls are simpler and more reliable
 
 ### Required OAuth2 Scopes for GA4
@@ -108,31 +96,10 @@ const scopes = [
 
 ## OAuth2 Authentication Flow
 
-The app uses OAuth2 with browser-based consent for Google Analytics access:
-
-```javascript
-// OAuth2 client setup with credentials
-const oauth2Client = new OAuth2Client(
-  credentials.web.client_id,
-  credentials.web.client_secret,
-  credentials.web.redirect_uris[0]
-);
-
-// Browser consent flow
-const authUrl = oauth2Client.generateAuthUrl({
-  access_type: 'offline',
-  scope: [
-    'https://www.googleapis.com/auth/analytics.readonly',
-    'https://www.googleapis.com/auth/bigquery.readonly'
-  ],
-  prompt: 'consent'
-});
-```
-
 **Key Implementation**: Direct REST API calls with OAuth2 Bearer tokens bypass client library issues:
 
 ```javascript
-// Direct REST API call for GA4 properties listing
+// Direct REST API calls (works reliably with OAuth2)
 const response = await fetch('https://analyticsadmin.googleapis.com/v1beta/accountSummaries', {
   method: 'GET',
   headers: {
@@ -141,7 +108,6 @@ const response = await fetch('https://analyticsadmin.googleapis.com/v1beta/accou
   }
 });
 
-// Direct API call for GA4 data queries
 const response = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`, {
   method: 'POST',
   headers: {
@@ -152,370 +118,87 @@ const response = await fetch(`https://analyticsdata.googleapis.com/v1beta/proper
 });
 ```
 
+**Detailed Implementation**: See [context-auth.md](./context-auth.md) for complete authentication system details.
+
 ## CLI Interface
 
-Interactive menu system with separate query options and continuous loop:
+Interactive menu system with continuous loop:
 
 1. **Analytics Query: Ad-hoc** - Execute custom GA4 queries with metric/dimension selection
-2. **Analytics Query: Report** - Execute predefined preset queries (no sorting prompts)
+2. **Analytics Query: Report** - Execute predefined preset queries
 3. **Analytics List properties** - Show GA4 properties
 4. **Analytics Select property** - Interactive property selection with memory
 5. **Sign in with Google** - OAuth2 flow setup
 6. **Sign out** - Clear authentication data
 7. **Exit** - Properly terminate the CLI
 
-```javascript
-// Menu structure in src/cli/prompts.js
-const base = [
-  {
-    type: "list",
-    name: "action",
-    message: "What would you like to do?",
-    choices: [
-      { name: "Analytics Query: Ad-hoc", value: "adhoc" },
-      { name: "Analytics Query: Report", value: "preset" },
-      { name: "Analytics List properties", value: "sites" },
-      { name: "Analytics Select property", value: "select_site" },
-      { name: "Sign in with Google Account that has access to Analytics", value: "auth" },
-      { name: "Sign out", value: "signout" },
-      { name: "Exit", value: "exit" },
-    ],
-  }
-];
-```
-
-### Continuous CLI Loop
-
-The CLI now runs in a continuous loop, returning to the main menu after each action:
-
-```javascript
-// Main CLI loop in src/cli/index.js
-while (true) {
-  const initialAnswers = await inquirer.prompt(await buildPrompts(cfg));
-  
-  if (initialAnswers.action === "auth") {
-    await handleAuthentication(cfg);
-    await waitForEnter();
-    continue;
-  } else if (initialAnswers.action === "exit") {
-    console.log(chalk.blue("Goodbye! 👋"));
-    break;
-  }
-  // ... other actions
-}
-```
+**Detailed Implementation**: See [context-cli.md](./context-cli.md) for complete CLI system details.
 
 ## Data Sources
 
-### Google Analytics 4
-- **Authentication**: OAuth2 with browser consent
-- **Scope**: `https://www.googleapis.com/auth/analytics.readonly`
-- **API**: Analytics Data API v1beta, Analytics Admin API v1beta
-- **Implementation**: Direct REST API calls with Bearer tokens
-- **Token Storage**: SQLite database (`gsc_auth.db`)
-
-### Google Search Console (Legacy)
-- **Authentication**: OAuth2 with browser consent
-- **Scope**: `https://www.googleapis.com/auth/webmasters.readonly`
-- **API**: Search Console API v1
-- **Token Storage**: SQLite database (`gsc_auth.db`)
-
-### BigQuery (Optional)
-- **Authentication**: Service account or OAuth2
-- **Configuration**: Via environment variables
-- **Integration**: GA4 data export to BigQuery
+- **Google Analytics 4**: OAuth2 with direct REST API calls, SQLite token storage
+- **BigQuery (Optional)**: Service account or OAuth2, configurable via environment variables
+- **Google Search Console (Legacy)**: OAuth2 with browser consent, SQLite token storage
 
 ## Query System
 
-### Preset Queries (Report Queries)
-Built-in GA4 analytics queries in `config.js` with client-side sorting:
-
-```javascript
-presets: [
-  {
-    id: "top-queries",
-    label: "Top Queries by Clicks",
-    source: "analytics",
-    metrics: ["clicks", "impressions", "ctr", "position"],
-    dimensions: ["query"],
-    orderBys: [{ metric: "clicks", desc: true }],
-    limit: 50
-  },
-  {
-    id: "top-queries-impressions",
-    label: "Top Queries by Impressions",
-    source: "analytics",
-    metrics: ["impressions", "clicks", "ctr", "position"],
-    dimensions: ["query"],
-    orderBys: [{ metric: "impressions", desc: true }],
-    limit: 50
-  },
-  {
-    id: "top-pages-impressions",
-    label: "Top Pages by Impressions",
-    source: "analytics",
-    metrics: ["impressions", "clicks", "ctr", "position"],
-    dimensions: ["page"],
-    orderBys: [{ metric: "impressions", desc: true }],
-    limit: 50
-  }
-]
-```
-
-**Key Features:**
-- **No Sorting Prompts**: Report queries skip user sorting prompts (use preset `orderBys`)
+- **Preset Queries**: Built-in GA4 analytics queries with client-side sorting
+- **Ad-hoc Queries**: Custom GA4 query builder with interactive sorting
 - **Client-Side Sorting**: Reliable sorting applied after API response
-- **Impressions-Based Reports**: New presets for impression-focused analysis
+- **Multiple Output Formats**: Table, JSON, CSV with smart formatting
 
-### Ad-hoc Queries
-Custom GA4 query builder with:
-- **Metrics**: sessions, users, pageviews, bounceRate, sessionDuration
-- **Dimensions**: country, device, source, medium, campaign, date
-- **Filters**: Dimension-based filtering
-- **Date Ranges**: Last 7/28/90 days or custom
-- **Interactive Sorting**: User can customize sorting after query execution
-
-## Client-Side Sorting Implementation
-
-For reliable sorting of preset queries, the system uses client-side sorting after API response:
-
-```javascript
-// src/datasources/analytics.js - Client-side sorting
-if (query.orderBys && query.orderBys.length > 0) {
-  rows = rows.sort((a, b) => {
-    for (const orderBy of query.orderBys) {
-      const fieldName = orderBy.metric || orderBy.dimension;
-      const aVal = a[fieldName] || 0;
-      const bVal = b[fieldName] || 0;
-      
-      if (aVal !== bVal) {
-        return orderBy.desc ? bVal - aVal : aVal - bVal;
-      }
-    }
-    return 0;
-  });
-}
-```
-
-**Benefits:**
-- **Reliable Sorting**: Guarantees correct sorting regardless of API behavior
-- **Multi-Level Sorting**: Supports primary/secondary sorting levels
-- **Preset Integrity**: Maintains intended sorting for all preset queries
+**Detailed Implementation**: See [context-sorting.md](./context-sorting.md) for complete sorting system details.
 
 ## Property Selection
 
-The CLI now includes intelligent property selection that remembers your choice:
-
-### Property Selection Features
 - **Interactive Selection**: Choose from GA4 properties using arrow keys
 - **Persistent Memory**: Your selection is saved in SQLite database
-- **Accessible Properties Only**: Only shows properties you have access to
 - **Automatic Usage**: Selected property is automatically used for all queries
-- **Easy Changes**: Change your selection anytime from the main menu
 
 **Detailed Implementation**: See [context-site-selection.md](./context-site-selection.md) for complete technical details.
 
 ## Authentication Helper
 
-Reusable authentication utilities ensure consistent authentication across all CLI functions:
-
-```javascript
-// src/utils/auth-helper.js
-export async function getAuthenticatedClient(cfg) {
-  const auth = await getOAuth2Client(analyticsConfig);
-  await auth.getAccessToken(); // Ensure fresh token
-  return auth;
-}
-
-export async function ensureAuthentication(cfg) {
-  const auth = await getAuthenticatedClient(cfg);
-  console.log(chalk.blue("Authentication verified"));
-  return auth;
-}
-```
-
-**Benefits**: Consistent authentication pattern used by all CLI handlers (queries, property listing, property selection).
+Reusable authentication utilities ensure consistent authentication across all CLI functions.
 
 **Detailed Implementation**: See [context-auth.md](./context-auth.md) for complete authentication system details.
 
-**Smart Sorting System**: See [context-sorting.md](./context-sorting.md) for complete sorting system details.
+## Feature-Specific Documentation
 
-**API Endpoints**: See [context-api.md](./context-api.md) for complete API documentation and JWT authentication details.
-
-**Property Selection**: See [context-site-selection.md](./context-site-selection.md) for complete property selection system details.
+- **API Endpoints**: See [context-api.md](./context-api.md) for complete API documentation and JWT authentication details
+- **Property Selection**: See [context-site-selection.md](./context-site-selection.md) for complete property selection system details
+- **Sorting System**: See [context-sorting.md](./context-sorting.md) for complete sorting system details
 
 ## Configuration
 
-Environment variables in `.env` (now optional with property selection):
+Environment variables in `.env` (optional with property selection):
 ```bash
 GA_PROPERTY_ID=123456789  # Optional - CLI will prompt if not set
 GA_CREDENTIALS_FILE=./env/client_secret_*.json
 ```
 
-OAuth2 credentials file structure:
-```json
-{
-  "web": {
-    "client_id": "...",
-    "client_secret": "...",
-    "redirect_uris": ["http://localhost:8888/callback.html"]
-  }
-}
-```
-
-## Smart Sorting System
-
-Interactive sorting selection with real-time feedback and organized UX:
-
-### Sorting Interface
-```javascript
-// Single-screen multiselect with organized options
-Select columns to sort by (order of selection = primary sorting, secondary sorting):
-❯ ◯ No Sorting
-  ◯  
-  ◯ ASC: name
-  ◯ ASC: age  
-  ◯ ASC: score
-  ◯  
-  ◯ DSC: name
-  ◯ DSC: age
-  ◯ DSC: score
-```
-
-### Real-Time Feedback
-```javascript
-// Shows current sorting with visual indicators
-📊 Sorting applied: Primary: age ↓ (descending), Secondary: score ↑ (ascending)
-```
-
-### Key Features
-- **Selection Order Tracking**: First selected = primary, second = secondary, etc.
-- **Visual Indicators**: Arrows (↑↓) and emojis (📊) for clear feedback
-- **Duplicate Prevention**: Cannot select both ASC and DSC versions of same column
-- **Organized Layout**: Clean separators between ASC and DSC sections
-- **Smart Validation**: Prevents invalid combinations
-
 ## Output Formats
 
-- **Table**: Console-formatted tables with pagination, chalk styling and 3-decimal formatting
+- **Table**: Console-formatted tables with pagination and 3-decimal formatting
 - **JSON**: Structured data export with sorting applied
 - **CSV**: Spreadsheet-compatible format with sorting applied
 - **File Export**: Optional file saving with timestamps
 
-## Pagination System
-
-The CLI now includes intelligent pagination for large result sets:
-
-### Pagination Features
-- **50 Rows Per Page**: Optimal balance between readability and information density
-- **Interactive Navigation**: Press Enter to continue or 'q' to return to main menu
-- **Progress Tracking**: Shows current page, total pages, and row ranges
-- **Screen Clearing**: Clean transitions between pages for better readability
-- **Flexible Exit**: Users can quit pagination at any time
-
-```javascript
-// Pagination implementation in src/cli/renderers.js
-async function displayTableWithPagination(rows) {
-  const rowsPerPage = 50;
-  let currentPage = 0;
-  const totalPages = Math.ceil(rows.length / rowsPerPage);
-  
-  console.log(chalk.blue(`\nTotal rows: ${rows.length} (${totalPages} pages)\n`));
-  
-  while (currentPage < totalPages) {
-    const startIndex = currentPage * rowsPerPage;
-    const endIndex = Math.min(startIndex + rowsPerPage, rows.length);
-    const pageRows = rows.slice(startIndex, endIndex);
-    
-    console.log(chalk.gray(`Page ${currentPage + 1} of ${totalPages} (rows ${startIndex + 1}-${endIndex}):\n`));
-    
-    // Format numbers to 3 decimal places for better readability
-    const formattedRows = pageRows.map(row => {
-      const formattedRow = {};
-      for (const [key, value] of Object.entries(row)) {
-        if (typeof value === 'number' && !Number.isInteger(value)) {
-          formattedRow[key] = Math.round(value * 1000) / 1000;
-        } else {
-          formattedRow[key] = value;
-        }
-      }
-      return formattedRow;
-    });
-    
-    console.table(formattedRows);
-    
-    currentPage++;
-    
-    if (currentPage < totalPages) {
-      console.log(chalk.yellow(`\nPress Enter to continue to page ${currentPage + 1} of ${totalPages}, or 'q' to return to menu...`));
-      const shouldContinue = await waitForEnterOrQuit();
-      if (!shouldContinue) {
-        console.log(chalk.blue('\nReturning to main menu...'));
-        return false; // Return to menu
-      }
-      console.clear(); // Clear screen for next page
-    }
-  }
-  
-  console.log(chalk.green(`\n✅ Displayed all ${rows.length} rows across ${totalPages} pages`));
-  return true; // Completed successfully
-}
-```
-
-**Benefits:**
-- **Better UX**: Large datasets are manageable and readable
-- **User Control**: Users can exit pagination at any time
-- **Performance**: No memory issues with large result sets
-- **Clean Interface**: Screen clearing prevents visual clutter
-
 ## API Endpoints
 
-### REST API Server (`src/api/server.js` - 60 lines)
+- **REST API Server**: Complete REST API with all CLI functionality as HTTP endpoints
+- **JWT Authentication**: Secure token-based authentication system for production use
+- **Multi-User Support**: User isolation with separate authentication and data storage
 
-The application now includes a full REST API that provides all CLI functionality as HTTP endpoints:
-
-```javascript
-// Main API server with user-based routing
-const express = require('express');
-const app = express();
-
-// User-based routing: /api/{userId}/endpoint
-app.get('/api/:userId/status', getUserStatus);
-app.post('/api/:userId/auth', authenticateUser);
-app.get('/api/:userId/sites', listUserSites);
-app.post('/api/:userId/query/adhoc', runAdhocQuery);
-app.post('/api/:userId/query/preset', runPresetQuery);
-```
-
-**Key Features:**
-- **Multi-User Support**: Each user identified by `userId` parameter
-- **Complete CLI Parity**: All CLI functions available as REST endpoints
-- **User Isolation**: Separate authentication and site data per user
-- **Flexible Output**: JSON, CSV, and table formats
-
-### JWT Authentication System (`src/api/jwt-routes.js` - 710 lines)
-
-Secure JWT-based authentication system for production use:
-
-```javascript
-// JWT authentication flow
-app.post('/api/auth/login', loginUser);        // Returns JWT token
-app.get('/api/status', authenticateJWT, getUserStatus);
-app.post('/api/query/adhoc', authenticateJWT, runAdhocQuery);
-```
-
-**Security Features:**
-- **JWT Tokens**: Secure token-based authentication
-- **Token Expiry**: Configurable token expiration (default: 24h)
-- **Session Management**: Automatic cleanup of expired sessions
-- **User Isolation**: Each user's data completely isolated
-
-### API Documentation
-
-- **Standard API**: [API-DOCUMENTATION.md](./API-DOCUMENTATION.md) - User-based routing
-- **JWT API**: [API-DOCUMENTATION-JWT.md](./API-DOCUMENTATION-JWT.md) - JWT authentication
+**Detailed Implementation**: See [context-api.md](./context-api.md) for complete API documentation and JWT authentication details.
 
 ## Recent Updates
+
+### Authentication Fix (v3.1)
+- ✅ **Consistent REST API** - Fixed authentication issues by using direct REST API calls for all operations
+- ✅ **Query Execution Fixed** - Ad hoc and reports now work with same OAuth2 authentication as property listing
+- ✅ **Client Library Issues Resolved** - Bypassed Google Analytics client library OAuth2 compatibility problems
+- ✅ **Reliable Authentication** - All features now use consistent direct REST API approach
 
 ### API Endpoints (v3.0)
 - ✅ **REST API Server** - Complete REST API with all CLI functionality
