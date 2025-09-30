@@ -368,6 +368,7 @@ export async function buildSessionFlowPrompts(cfg) {
         { name: "Funnel Analysis", value: "funnel_analysis" },
         { name: "Exit Page Analysis", value: "exit_analysis" },
         { name: "Landing Page Analysis", value: "landing_analysis" },
+        { name: "Session Exploration", value: "session_exploration" },
         { name: "Back to Main Menu", value: "back" },
       ],
     },

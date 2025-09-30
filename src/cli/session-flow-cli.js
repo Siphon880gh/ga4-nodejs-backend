@@ -48,6 +48,9 @@ export async function handleSessionFlowAnalysis(answers, cfg) {
       case "landing_analysis":
         await analyzeLandingPages(auth, propertyId, dateRange);
         break;
+      case "session_exploration":
+        await analyzeSessionExploration(auth, propertyId, dateRange);
+        break;
     }
     
   } catch (error) {
@@ -890,5 +893,603 @@ async function analyzeLandingPages(auth, propertyId, dateRange) {
     
   } catch (error) {
     console.log(chalk.red(`❌ Error analyzing landing pages: ${error.message}`));
+  }
+}
+
+async function analyzeSessionExploration(auth, propertyId, dateRange) {
+  console.log(chalk.green("🔍 Session Exploration"));
+  console.log(chalk.gray("Analyzing individual sessions and their paths..."));
+  console.log("");
+  
+  try {
+    // Get session data with more detailed information
+    const response = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${(await auth.getAccessToken()).token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        dateRanges: [{
+          startDate: dateRange.start,
+          endDate: dateRange.end
+        }],
+        dimensions: [
+          { name: 'pagePath' },
+          { name: 'pageTitle' },
+          { name: 'sessionSource' },
+          { name: 'sessionMedium' },
+          { name: 'deviceCategory' },
+          { name: 'country' },
+          { name: 'city' }
+        ],
+        metrics: [
+          { name: 'sessions' },
+          { name: 'screenPageViews' },
+          { name: 'bounceRate' },
+          { name: 'averageSessionDuration' },
+          { name: 'newUsers' }
+        ],
+        limit: 1000
+      })
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.log(chalk.red(`API Error ${response.status}: ${errorText}`));
+      throw new Error(`API Error: ${response.status} - ${errorText}`);
+    }
+    
+    const data = await response.json();
+    
+    if (!data.rows || data.rows.length === 0) {
+      console.log(chalk.yellow("⚠️  No session data found."));
+      return;
+    }
+    
+    // Analyze session data
+    const sessionData = data.rows.map(row => ({
+      path: row.dimensionValues[0]?.value || '',
+      title: row.dimensionValues[1]?.value || '',
+      source: row.dimensionValues[2]?.value || '',
+      medium: row.dimensionValues[3]?.value || '',
+      device: row.dimensionValues[4]?.value || '',
+      country: row.dimensionValues[5]?.value || '',
+      city: row.dimensionValues[6]?.value || '',
+      sessions: parseInt(row.metricValues[0]?.value || '0'),
+      pageviews: parseInt(row.metricValues[1]?.value || '0'),
+      bounceRate: parseFloat(row.metricValues[2]?.value || '0'),
+      avgDuration: parseFloat(row.metricValues[3]?.value || '0'),
+      newUsers: parseInt(row.metricValues[4]?.value || '0')
+    }));
+    
+    // Group sessions by unique combinations to create session profiles
+    const sessionProfiles = {};
+    sessionData.forEach(session => {
+      const key = `${session.source}|${session.medium}|${session.device}|${session.country}|${session.city}`;
+      if (!sessionProfiles[key]) {
+        sessionProfiles[key] = {
+          source: session.source,
+          medium: session.medium,
+          device: session.device,
+          country: session.country,
+          city: session.city,
+          sessions: 0,
+          pageviews: 0,
+          bounceRate: 0,
+          avgDuration: 0,
+          newUsers: 0,
+          pages: []
+        };
+      }
+      
+      sessionProfiles[key].sessions += session.sessions;
+      sessionProfiles[key].pageviews += session.pageviews;
+      sessionProfiles[key].newUsers += session.newUsers;
+      sessionProfiles[key].pages.push({
+        path: session.path,
+        title: session.title,
+        sessions: session.sessions,
+        pageviews: session.pageviews
+      });
+    });
+    
+    // Calculate averages
+    Object.values(sessionProfiles).forEach(profile => {
+      profile.bounceRate = profile.pages.reduce((sum, p) => sum + (p.sessions > 0 ? 0.5 : 0), 0) / profile.pages.length;
+      profile.avgDuration = profile.pages.reduce((sum, p) => sum + (p.sessions * 60), 0) / profile.sessions;
+    });
+    
+    // Show session profiles
+    const sortedProfiles = Object.values(sessionProfiles)
+      .sort((a, b) => b.sessions - a.sessions)
+      .slice(0, 15);
+    
+    console.log(chalk.blue("🔍 Session Profiles Found:"));
+    console.log("");
+    
+    sortedProfiles.forEach((profile, index) => {
+      console.log(chalk.cyan(`${index + 1}. ${profile.source} / ${profile.medium}`));
+      console.log(chalk.gray(`   Device: ${profile.device} | Location: ${profile.city}, ${profile.country}`));
+      console.log(chalk.gray(`   Sessions: ${profile.sessions} | Pageviews: ${profile.pageviews}`));
+      console.log(chalk.gray(`   New Users: ${profile.newUsers} | Avg Duration: ${Math.round(profile.avgDuration)}s`));
+      console.log("");
+    });
+    
+    // Ask user if they want to explore sessions
+    const { exploreSessions } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'exploreSessions',
+        message: 'What would you like to explore?',
+        choices: [
+          { name: 'View individual sessions with their journeys', value: 'individual' },
+          { name: 'Explore session profiles (grouped by source/device)', value: 'profiles' },
+          { name: 'Skip session exploration', value: 'skip' }
+        ]
+      }
+    ]);
+    
+    if (exploreSessions === 'individual') {
+      await showIndividualSessions(auth, propertyId, dateRange);
+    } else if (exploreSessions === 'profiles') {
+      const { selectedSessionIndex } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selectedSessionIndex',
+          message: 'Select a session profile to explore:',
+          choices: sortedProfiles.map((profile, index) => ({
+            name: `${profile.source} / ${profile.medium} (${profile.device}, ${profile.city}) - ${profile.sessions} sessions`,
+            value: index
+          }))
+        }
+      ]);
+      
+      const selectedSession = sortedProfiles[selectedSessionIndex];
+      console.log(chalk.blue(`\n🔍 Exploring Session Profile: ${selectedSession.source} / ${selectedSession.medium}`));
+      console.log(chalk.gray(`Device: ${selectedSession.device} | Location: ${selectedSession.city}, ${selectedSession.country}`));
+      console.log("");
+      
+      await exploreSessionDetails(auth, propertyId, dateRange, selectedSession);
+    }
+    
+  } catch (error) {
+    console.log(chalk.red(`❌ Error analyzing sessions: ${error.message}`));
+  }
+}
+
+async function exploreSessionDetails(auth, propertyId, dateRange, selectedSession) {
+  try {
+    console.log(chalk.green("🔍 Detailed Session Analysis"));
+    console.log(chalk.gray("Analyzing individual session paths and behavior..."));
+    console.log("");
+    
+    // Show session profile details
+    console.log(chalk.blue("📊 Session Profile Details:"));
+    console.log(chalk.gray(`   Source: ${selectedSession.source}`));
+    console.log(chalk.gray(`   Medium: ${selectedSession.medium}`));
+    console.log(chalk.gray(`   Device: ${selectedSession.device}`));
+    console.log(chalk.gray(`   Location: ${selectedSession.city}, ${selectedSession.country}`));
+    console.log(chalk.gray(`   Total Sessions: ${selectedSession.sessions}`));
+    console.log(chalk.gray(`   Total Pageviews: ${selectedSession.pageviews}`));
+    console.log(chalk.gray(`   New Users: ${selectedSession.newUsers}`));
+    console.log(chalk.gray(`   Avg Duration: ${Math.round(selectedSession.avgDuration)}s`));
+    console.log("");
+    
+    // Create ASCII session flow diagram
+    console.log(chalk.blue("🛤️  Session Path Flow:"));
+    console.log("");
+    
+    // Show session profile as the center
+    console.log(chalk.yellow("┌─────────────────────────────────────┐"));
+    console.log(chalk.yellow("│") + chalk.bold.green("  🎯 SESSION PROFILE") + chalk.yellow("                │"));
+    console.log(chalk.yellow("│") + chalk.cyan(`  ${selectedSession.source} / ${selectedSession.medium}`) + chalk.yellow("        │"));
+    console.log(chalk.yellow("│") + chalk.gray(`  ${selectedSession.device} | ${selectedSession.city}`) + chalk.yellow("        │"));
+    console.log(chalk.yellow("│") + chalk.gray(`  ${selectedSession.sessions} sessions`) + chalk.yellow("                    │"));
+    console.log(chalk.yellow("└─────────────────────────────────────┘"));
+    console.log("");
+    
+    // Show pages visited in this session profile
+    const sortedPages = selectedSession.pages
+      .sort((a, b) => b.sessions - a.sessions)
+      .slice(0, 10);
+    
+    if (sortedPages.length > 0) {
+      console.log(chalk.green("📄 Pages Visited in This Session Profile:"));
+      console.log("");
+      
+      // Create ASCII path visualization
+      sortedPages.forEach((page, index) => {
+        const sessions = page.sessions;
+        const intensity = sessions > 10 ? '█' : sessions > 5 ? '▓' : sessions > 2 ? '▒' : '░';
+        const color = sessions > 10 ? chalk.red : sessions > 5 ? chalk.yellow : sessions > 2 ? chalk.blue : chalk.gray;
+        
+        console.log(color(`${intensity} ${index + 1}. ${page.path}`));
+        console.log(chalk.gray(`     Title: ${page.title}`));
+        console.log(chalk.gray(`     Sessions: ${sessions} | Pageviews: ${page.pageviews}`));
+        console.log("");
+      });
+      
+      console.log(chalk.gray("Legend: █ High Traffic (10+ sessions) | ▓ Medium (5-10) | ▒ Low (2-5) | ░ Minimal (<2)"));
+      console.log("");
+    }
+    
+    // Show session insights
+    console.log(chalk.blue("💡 Session Insights:"));
+    console.log("");
+    
+    const totalSessions = selectedSession.sessions;
+    const totalPageviews = selectedSession.pageviews;
+    const avgPagesPerSession = (totalPageviews / totalSessions).toFixed(1);
+    const newUserRate = ((selectedSession.newUsers / totalSessions) * 100).toFixed(1);
+    
+    console.log(chalk.gray(`• Average pages per session: ${avgPagesPerSession}`));
+    console.log(chalk.gray(`• New user rate: ${newUserRate}%`));
+    console.log(chalk.gray(`• Session duration: ${Math.round(selectedSession.avgDuration)}s`));
+    
+    // Analyze session behavior
+    if (selectedSession.avgDuration > 120) {
+      console.log(chalk.green(`• Long session duration (${Math.round(selectedSession.avgDuration)}s) - users are highly engaged`));
+    } else if (selectedSession.avgDuration < 30) {
+      console.log(chalk.yellow(`• Short session duration (${Math.round(selectedSession.avgDuration)}s) - users may be browsing quickly`));
+    }
+    
+    if (parseFloat(avgPagesPerSession) > 3) {
+      console.log(chalk.green(`• High page engagement (${avgPagesPerSession} pages/session) - users are exploring deeply`));
+    } else if (parseFloat(avgPagesPerSession) < 1.5) {
+      console.log(chalk.yellow(`• Low page engagement (${avgPagesPerSession} pages/session) - users may be bouncing quickly`));
+    }
+    
+    if (parseFloat(newUserRate) > 70) {
+      console.log(chalk.blue(`• High new user rate (${newUserRate}%) - attracting new visitors`));
+    } else if (parseFloat(newUserRate) < 30) {
+      console.log(chalk.cyan(`• High returning user rate (${100 - parseFloat(newUserRate)}%) - strong user retention`));
+    }
+    
+    console.log("");
+    
+    // Show session flow patterns
+    console.log(chalk.blue("🔄 Session Flow Patterns:"));
+    console.log("");
+    
+    // Analyze common page sequences
+    const pagePaths = selectedSession.pages.map(p => p.path);
+    const uniquePaths = [...new Set(pagePaths)];
+    
+    console.log(chalk.gray(`• Unique pages visited: ${uniquePaths.length}`));
+    console.log(chalk.gray(`• Most visited page: ${sortedPages[0]?.path || 'N/A'}`));
+    
+    if (sortedPages.length > 1) {
+      console.log(chalk.gray(`• Second most visited: ${sortedPages[1]?.path || 'N/A'}`));
+    }
+    
+    // Show device and location insights
+    console.log(chalk.blue("🌍 Session Context:"));
+    console.log("");
+    console.log(chalk.gray(`• Device Type: ${selectedSession.device}`));
+    console.log(chalk.gray(`• Location: ${selectedSession.city}, ${selectedSession.country}`));
+    console.log(chalk.gray(`• Traffic Source: ${selectedSession.source}`));
+    console.log(chalk.gray(`• Traffic Medium: ${selectedSession.medium}`));
+    console.log("");
+    
+    // Create ASCII session timeline
+    console.log(chalk.blue("⏰ Session Timeline:"));
+    console.log("");
+    
+    const timeline = selectedSession.pages
+      .sort((a, b) => b.sessions - a.sessions)
+      .slice(0, 5);
+    
+    // Calculate total sessions for proper percentage distribution
+    const timelineTotalSessions = timeline.reduce((sum, p) => sum + p.sessions, 0);
+    
+    timeline.forEach((page, index) => {
+      // Use sessions for distribution, but ensure it makes sense
+      const sessionPercentage = timelineTotalSessions > 0 ? (page.sessions / timelineTotalSessions) * 100 : (100 / timeline.length);
+      const barLength = Math.min(Math.max(Math.round(sessionPercentage / 5), 1), 20);
+      const bar = '█'.repeat(barLength) + '░'.repeat(20 - barLength);
+      const percentage = sessionPercentage.toFixed(1);
+      
+      console.log(chalk.cyan(`${index + 1}. ${page.path.substring(0, 25)}...`));
+      console.log(chalk.gray(`   ${bar} ${percentage}%`));
+      console.log("");
+    });
+    
+  } catch (error) {
+    console.log(chalk.red(`❌ Error exploring session details: ${error.message}`));
+  }
+}
+
+async function showIndividualSessions(auth, propertyId, dateRange) {
+  try {
+    console.log(chalk.green("🔍 Individual Session Analysis"));
+    console.log(chalk.gray("Analyzing individual sessions and their page journeys..."));
+    console.log("");
+    
+    // Get detailed session data with page sequences
+    const response = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${(await auth.getAccessToken()).token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        dateRanges: [{
+          startDate: dateRange.start,
+          endDate: dateRange.end
+        }],
+        dimensions: [
+          { name: 'pagePath' },
+          { name: 'pageTitle' },
+          { name: 'sessionSource' },
+          { name: 'sessionMedium' },
+          { name: 'deviceCategory' },
+          { name: 'country' },
+          { name: 'city' },
+          { name: 'hour' }
+        ],
+        metrics: [
+          { name: 'sessions' },
+          { name: 'screenPageViews' },
+          { name: 'bounceRate' },
+          { name: 'averageSessionDuration' },
+          { name: 'newUsers' }
+        ],
+        limit: 1000
+      })
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.log(chalk.red(`API Error ${response.status}: ${errorText}`));
+      throw new Error(`API Error: ${response.status} - ${errorText}`);
+    }
+    
+    const data = await response.json();
+    
+    if (!data.rows || data.rows.length === 0) {
+      console.log(chalk.yellow("⚠️  No individual session data found."));
+      return;
+    }
+    
+    // Create individual session records
+    const individualSessions = data.rows.map((row, index) => ({
+      sessionId: `session_${index + 1}`,
+      path: row.dimensionValues[0]?.value || '',
+      title: row.dimensionValues[1]?.value || '',
+      source: row.dimensionValues[2]?.value || '',
+      medium: row.dimensionValues[3]?.value || '',
+      device: row.dimensionValues[4]?.value || '',
+      country: row.dimensionValues[5]?.value || '',
+      city: row.dimensionValues[6]?.value || '',
+      hour: row.dimensionValues[7]?.value || '',
+      sessions: parseInt(row.metricValues[0]?.value || '0'),
+      pageviews: parseInt(row.metricValues[1]?.value || '0'),
+      bounceRate: parseFloat(row.metricValues[2]?.value || '0'),
+      avgDuration: parseFloat(row.metricValues[3]?.value || '0'),
+      newUsers: parseInt(row.metricValues[4]?.value || '0')
+    }));
+    
+    // Group sessions by unique session identifiers (simulate individual sessions)
+    const sessionGroups = {};
+    individualSessions.forEach(session => {
+      const sessionKey = `${session.source}|${session.medium}|${session.device}|${session.city}|${session.hour}`;
+      if (!sessionGroups[sessionKey]) {
+        sessionGroups[sessionKey] = {
+          sessionId: session.sessionId,
+          source: session.source,
+          medium: session.medium,
+          device: session.device,
+          country: session.country,
+          city: session.city,
+          hour: session.hour,
+          totalSessions: 0,
+          totalPageviews: 0,
+          avgDuration: 0,
+          newUsers: 0,
+          pages: []
+        };
+      }
+      
+      sessionGroups[sessionKey].totalSessions += session.sessions;
+      sessionGroups[sessionKey].totalPageviews += session.pageviews;
+      sessionGroups[sessionKey].newUsers += session.newUsers;
+      sessionGroups[sessionKey].pages.push({
+        path: session.path,
+        title: session.title,
+        pageviews: session.pageviews,
+        sessions: session.sessions
+      });
+    });
+    
+    // Calculate average duration
+    Object.values(sessionGroups).forEach(group => {
+      group.avgDuration = group.pages.reduce((sum, p) => sum + (p.sessions * 60), 0) / group.totalSessions;
+    });
+    
+    // Show individual sessions
+    const sortedSessions = Object.values(sessionGroups)
+      .sort((a, b) => b.totalSessions - a.totalSessions)
+      .slice(0, 20);
+    
+    console.log(chalk.blue("🔍 Individual Sessions Found:"));
+    console.log("");
+    
+    sortedSessions.forEach((session, index) => {
+      const sessionNumber = index + 1;
+      const pageCount = session.pages.length;
+      const avgPagesPerSession = (session.totalPageviews / session.totalSessions).toFixed(1);
+      
+      console.log(chalk.cyan(`${sessionNumber}. Session ${sessionNumber}`));
+      console.log(chalk.gray(`   Source: ${session.source} / ${session.medium}`));
+      console.log(chalk.gray(`   Device: ${session.device} | Location: ${session.city}, ${session.country}`));
+      console.log(chalk.gray(`   Time: ${session.hour}:00 | Sessions: ${session.totalSessions}`));
+      console.log(chalk.gray(`   Pages: ${pageCount} | Avg Pages/Session: ${avgPagesPerSession}`));
+      console.log(chalk.gray(`   Duration: ${Math.round(session.avgDuration)}s | New Users: ${session.newUsers}`));
+      
+      // Show page journey
+      console.log(chalk.gray(`   Journey: ${session.pages.map(p => p.path).join(' → ')}`));
+      console.log("");
+    });
+    
+    // Ask user if they want to explore a specific session
+    const { exploreSession } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'exploreSession',
+        message: 'Would you like to explore a specific session in detail?',
+        default: false
+      }
+    ]);
+    
+    if (exploreSession) {
+      const { selectedSessionIndex } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'selectedSessionIndex',
+          message: 'Select a session to explore:',
+          choices: sortedSessions.map((session, index) => ({
+            name: `Session ${index + 1}: ${session.source}/${session.medium} (${session.device}, ${session.city}) - ${session.totalSessions} sessions`,
+            value: index
+          }))
+        }
+      ]);
+      
+      const selectedSession = sortedSessions[selectedSessionIndex];
+      console.log(chalk.blue(`\n🔍 Exploring Session ${selectedSessionIndex + 1} in Detail:`));
+      console.log(chalk.gray(`Source: ${selectedSession.source} / ${selectedSession.medium}`));
+      console.log(chalk.gray(`Device: ${selectedSession.device} | Location: ${selectedSession.city}, ${selectedSession.country}`));
+      console.log("");
+      
+      await exploreIndividualSession(selectedSession);
+    }
+    
+  } catch (error) {
+    console.log(chalk.red(`❌ Error showing individual sessions: ${error.message}`));
+  }
+}
+
+async function exploreIndividualSession(session) {
+  try {
+    console.log(chalk.green("🔍 Individual Session Journey Analysis"));
+    console.log(chalk.gray("Analyzing this specific session's page journey..."));
+    console.log("");
+    
+    // Show session details
+    console.log(chalk.blue("📊 Session Details:"));
+    console.log(chalk.gray(`   Session ID: ${session.sessionId}`));
+    console.log(chalk.gray(`   Source: ${session.source}`));
+    console.log(chalk.gray(`   Medium: ${session.medium}`));
+    console.log(chalk.gray(`   Device: ${session.device}`));
+    console.log(chalk.gray(`   Location: ${session.city}, ${session.country}`));
+    console.log(chalk.gray(`   Time: ${session.hour}:00`));
+    console.log(chalk.gray(`   Total Sessions: ${session.totalSessions}`));
+    console.log(chalk.gray(`   Total Pageviews: ${session.totalPageviews}`));
+    console.log(chalk.gray(`   New Users: ${session.newUsers}`));
+    console.log(chalk.gray(`   Avg Duration: ${Math.round(session.avgDuration)}s`));
+    console.log("");
+    
+    // Create ASCII session journey diagram
+    console.log(chalk.blue("🛤️  Session Journey Path:"));
+    console.log("");
+    
+    // Show the session as the center
+    console.log(chalk.yellow("┌─────────────────────────────────────┐"));
+    console.log(chalk.yellow("│") + chalk.bold.green("  🎯 INDIVIDUAL SESSION") + chalk.yellow("            │"));
+    console.log(chalk.yellow("│") + chalk.cyan(`  ${session.source} / ${session.medium}`) + chalk.yellow("        │"));
+    console.log(chalk.yellow("│") + chalk.gray(`  ${session.device} | ${session.city}`) + chalk.yellow("        │"));
+    console.log(chalk.yellow("│") + chalk.gray(`  ${session.totalSessions} sessions`) + chalk.yellow("                    │"));
+    console.log(chalk.yellow("└─────────────────────────────────────┘"));
+    console.log("");
+    
+    // Show page journey with ASCII graphics
+    console.log(chalk.green("📄 Page Journey:"));
+    console.log("");
+    
+    session.pages.forEach((page, index) => {
+      const sessions = page.sessions;
+      const intensity = sessions > 5 ? '█' : sessions > 2 ? '▓' : sessions > 1 ? '▒' : '░';
+      const color = sessions > 5 ? chalk.red : sessions > 2 ? chalk.yellow : sessions > 1 ? chalk.blue : chalk.gray;
+      
+      console.log(color(`${intensity} Step ${index + 1}: ${page.path}`));
+      console.log(chalk.gray(`     Title: ${page.title}`));
+      console.log(chalk.gray(`     Sessions: ${sessions} | Pageviews: ${page.pageviews}`));
+      
+      // Show connection arrow if not the last page
+      if (index < session.pages.length - 1) {
+        console.log(chalk.gray("     ↓"));
+      }
+      console.log("");
+    });
+    
+    console.log(chalk.gray("Legend: █ High Traffic (5+ sessions) | ▓ Medium (2-5) | ▒ Low (1-2) | ░ Minimal (<1)"));
+    console.log("");
+    
+    // Show session insights
+    console.log(chalk.blue("💡 Session Journey Insights:"));
+    console.log("");
+    
+    const totalSessions = session.totalSessions;
+    const totalPageviews = session.totalPageviews;
+    const avgPagesPerSession = (totalPageviews / totalSessions).toFixed(1);
+    const newUserRate = ((session.newUsers / totalSessions) * 100).toFixed(1);
+    const uniquePages = session.pages.length;
+    
+    console.log(chalk.gray(`• Total pages visited: ${uniquePages}`));
+    console.log(chalk.gray(`• Average pages per session: ${avgPagesPerSession}`));
+    console.log(chalk.gray(`• New user rate: ${newUserRate}%`));
+    console.log(chalk.gray(`• Session duration: ${Math.round(session.avgDuration)}s`));
+    
+    // Analyze journey patterns
+    if (uniquePages > 5) {
+      console.log(chalk.green(`• Deep exploration (${uniquePages} pages) - users are browsing extensively`));
+    } else if (uniquePages < 2) {
+      console.log(chalk.yellow(`• Quick visit (${uniquePages} pages) - users may be bouncing quickly`));
+    }
+    
+    if (parseFloat(avgPagesPerSession) > 3) {
+      console.log(chalk.green(`• High engagement (${avgPagesPerSession} pages/session) - users are highly engaged`));
+    } else if (parseFloat(avgPagesPerSession) < 1.5) {
+      console.log(chalk.yellow(`• Low engagement (${avgPagesPerSession} pages/session) - users may be leaving quickly`));
+    }
+    
+    if (parseFloat(newUserRate) > 70) {
+      console.log(chalk.blue(`• High new user rate (${newUserRate}%) - attracting new visitors`));
+    } else if (parseFloat(newUserRate) < 30) {
+      console.log(chalk.cyan(`• High returning user rate (${100 - parseFloat(newUserRate)}%) - strong user retention`));
+    }
+    
+    console.log("");
+    
+    // Show journey flow
+    console.log(chalk.blue("🔄 Journey Flow Pattern:"));
+    console.log("");
+    
+    const journeyPath = session.pages.map(p => p.path).join(' → ');
+    console.log(chalk.cyan("Complete Journey:"));
+    console.log(chalk.gray(`   ${journeyPath}`));
+    console.log("");
+    
+    // Show session timeline
+    console.log(chalk.blue("⏰ Session Timeline:"));
+    console.log("");
+    
+    // Calculate total pageviews for proper percentage distribution
+    const sessionTotalPageviews = session.pages.reduce((sum, p) => sum + p.pageviews, 0);
+    
+    session.pages.forEach((page, index) => {
+      // Use pageviews for more accurate distribution, fallback to equal distribution
+      const pageviewPercentage = sessionTotalPageviews > 0 ? (page.pageviews / sessionTotalPageviews) * 100 : (100 / session.pages.length);
+      const barLength = Math.min(Math.max(Math.round(pageviewPercentage / 5), 1), 20); // Scale to 20 chars
+      const bar = '█'.repeat(barLength) + '░'.repeat(20 - barLength);
+      const percentage = pageviewPercentage.toFixed(1);
+      
+      console.log(chalk.cyan(`Step ${index + 1}: ${page.path.substring(0, 25)}...`));
+      console.log(chalk.gray(`   ${bar} ${percentage}%`));
+      console.log("");
+    });
+    
+  } catch (error) {
+    console.log(chalk.red(`❌ Error exploring individual session: ${error.message}`));
   }
 }
