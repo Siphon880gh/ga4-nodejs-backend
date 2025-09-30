@@ -21,9 +21,9 @@ export default {
         sessionDuration: "averageSessionDuration",
         conversionRate: "conversions",
         revenue: "totalRevenue",
-        transactions: "purchases",
+        transactions: "ecommercePurchases",
         newUsers: "newUsers",
-        returnUsers: "returningUsers",
+        returnUsers: "activeUsers",
       },
       // Google Analytics 4 dimensions
       dimensions: {
