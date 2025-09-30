@@ -61,32 +61,35 @@ async function analyzePathExploration(auth, propertyId, dateRange) {
   
   try {
     // Get page paths with session data
+    const requestBody = {
+      dateRanges: [{
+        startDate: dateRange.start,
+        endDate: dateRange.end
+      }],
+      dimensions: [
+        { name: 'pagePath' },
+        { name: 'pageTitle' }
+      ],
+      metrics: [
+        { name: 'sessions' },
+        { name: 'screenPageViews' }
+      ],
+      limit: 1000
+    };
+    
     const response = await fetch(`https://analyticsdata.googleapis.com/v1beta/properties/${propertyId}:runReport`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${(await auth.getAccessToken()).token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        dateRanges: [{
-          startDate: dateRange.start,
-          endDate: dateRange.end
-        }],
-        dimensions: [
-          { name: 'pagePath' },
-          { name: 'pageTitle' },
-          { name: 'sessionId' }
-        ],
-        metrics: [
-          { name: 'sessions' },
-          { name: 'screenPageViews' }
-        ],
-        limit: 1000
-      })
+      body: JSON.stringify(requestBody)
     });
     
     if (!response.ok) {
-      throw new Error(`API Error: ${response.status}`);
+      const errorText = await response.text();
+      console.log(chalk.red(`API Error ${response.status}: ${errorText}`));
+      throw new Error(`API Error: ${response.status} - ${errorText}`);
     }
     
     const data = await response.json();
@@ -96,60 +99,64 @@ async function analyzePathExploration(auth, propertyId, dateRange) {
       return;
     }
     
-    // Group by session to show paths
-    const sessionPaths = {};
-    data.rows.forEach(row => {
-      const sessionId = row.dimensionValues[2]?.value || 'unknown';
-      const pagePath = row.dimensionValues[0]?.value || '';
-      const pageTitle = row.dimensionValues[1]?.value || '';
-      const sessions = parseInt(row.metricValues[0]?.value || '0');
-      
-      if (!sessionPaths[sessionId]) {
-        sessionPaths[sessionId] = {
-          pages: [],
-          totalSessions: sessions
-        };
-      }
-      
-      sessionPaths[sessionId].pages.push({
-        path: pagePath,
-        title: pageTitle
-      });
-    });
+    // Analyze page performance and common paths
+    const pageData = data.rows.map(row => ({
+      path: row.dimensionValues[0]?.value || '',
+      title: row.dimensionValues[1]?.value || '',
+      sessions: parseInt(row.metricValues[0]?.value || '0'),
+      pageviews: parseInt(row.metricValues[1]?.value || '0')
+    })).sort((a, b) => b.sessions - a.sessions);
     
-    console.log(chalk.blue("🔍 Session Paths Found:"));
+    console.log(chalk.blue("🔍 Top Pages by Sessions:"));
     console.log("");
     
-    // Show top 10 session paths
-    const sortedSessions = Object.entries(sessionPaths)
-      .sort(([,a], [,b]) => b.totalSessions - a.totalSessions)
-      .slice(0, 10);
-    
-    sortedSessions.forEach(([sessionId, data], index) => {
-      console.log(chalk.cyan(`Session ${index + 1} (${data.totalSessions} sessions):`));
-      const pathString = data.pages.map(p => p.path).join(' → ');
-      console.log(chalk.gray(`  Path: ${pathString}`));
+    // Show top 10 pages
+    pageData.slice(0, 10).forEach((page, index) => {
+      console.log(chalk.cyan(`${index + 1}. ${page.path}`));
+      console.log(chalk.gray(`   Title: ${page.title}`));
+      console.log(chalk.gray(`   Sessions: ${page.sessions}, Pageviews: ${page.pageviews}`));
       console.log("");
     });
     
-    // Show most common page sequences
-    console.log(chalk.blue("📈 Most Common Page Sequences:"));
-    const pageSequences = {};
+    // Show page flow analysis
+    console.log(chalk.blue("📈 Page Flow Analysis:"));
+    console.log("");
     
-    Object.values(sessionPaths).forEach(session => {
-      if (session.pages.length > 1) {
-        const sequence = session.pages.map(p => p.path).join(' → ');
-        pageSequences[sequence] = (pageSequences[sequence] || 0) + session.totalSessions;
-      }
-    });
+    // Find common page patterns
+    const homePage = pageData.find(p => p.path === '/');
+    const productPages = pageData.filter(p => p.path.includes('/product') || p.path.includes('/products'));
+    const categoryPages = pageData.filter(p => p.path.includes('/category') || p.path.includes('/categories'));
+    const checkoutPages = pageData.filter(p => p.path.includes('/checkout') || p.path.includes('/cart'));
     
-    const sortedSequences = Object.entries(pageSequences)
-      .sort(([,a], [,b]) => b - a)
-      .slice(0, 5);
+    if (homePage) {
+      console.log(chalk.green("🏠 Homepage Performance:"));
+      console.log(chalk.gray(`   Sessions: ${homePage.sessions}, Pageviews: ${homePage.pageviews}`));
+      console.log("");
+    }
     
-    sortedSequences.forEach(([sequence, count], index) => {
-      console.log(chalk.green(`${index + 1}. ${sequence} (${count} sessions)`));
-    });
+    if (productPages.length > 0) {
+      const totalProductSessions = productPages.reduce((sum, p) => sum + p.sessions, 0);
+      console.log(chalk.green("🛍️ Product Pages:"));
+      console.log(chalk.gray(`   Total Sessions: ${totalProductSessions}`));
+      console.log(chalk.gray(`   Top Product: ${productPages[0].path} (${productPages[0].sessions} sessions)`));
+      console.log("");
+    }
+    
+    if (categoryPages.length > 0) {
+      const totalCategorySessions = categoryPages.reduce((sum, p) => sum + p.sessions, 0);
+      console.log(chalk.green("📂 Category Pages:"));
+      console.log(chalk.gray(`   Total Sessions: ${totalCategorySessions}`));
+      console.log(chalk.gray(`   Top Category: ${categoryPages[0].path} (${categoryPages[0].sessions} sessions)`));
+      console.log("");
+    }
+    
+    if (checkoutPages.length > 0) {
+      const totalCheckoutSessions = checkoutPages.reduce((sum, p) => sum + p.sessions, 0);
+      console.log(chalk.green("🛒 Checkout Pages:"));
+      console.log(chalk.gray(`   Total Sessions: ${totalCheckoutSessions}`));
+      console.log(chalk.gray(`   Top Checkout: ${checkoutPages[0].path} (${checkoutPages[0].sessions} sessions)`));
+      console.log("");
+    }
     
   } catch (error) {
     console.log(chalk.red(`❌ Error analyzing paths: ${error.message}`));
@@ -175,9 +182,7 @@ async function analyzeUserJourney(auth, propertyId, dateRange) {
         }],
         dimensions: [
           { name: 'pagePath' },
-          { name: 'pageTitle' },
-          { name: 'sessionId' },
-          { name: 'clientId' }
+          { name: 'pageTitle' }
         ],
         metrics: [
           { name: 'sessions' },
@@ -188,7 +193,9 @@ async function analyzeUserJourney(auth, propertyId, dateRange) {
     });
     
     if (!response.ok) {
-      throw new Error(`API Error: ${response.status}`);
+      const errorText = await response.text();
+      console.log(chalk.red(`API Error ${response.status}: ${errorText}`));
+      throw new Error(`API Error: ${response.status} - ${errorText}`);
     }
     
     const data = await response.json();
@@ -198,44 +205,58 @@ async function analyzeUserJourney(auth, propertyId, dateRange) {
       return;
     }
     
-    // Group by clientId to show user journeys
-    const userJourneys = {};
-    data.rows.forEach(row => {
-      const clientId = row.dimensionValues[3]?.value || 'unknown';
-      const sessionId = row.dimensionValues[2]?.value || 'unknown';
-      const pagePath = row.dimensionValues[0]?.value || '';
-      const pageTitle = row.dimensionValues[1]?.value || '';
-      
-      if (!userJourneys[clientId]) {
-        userJourneys[clientId] = {};
-      }
-      
-      if (!userJourneys[clientId][sessionId]) {
-        userJourneys[clientId][sessionId] = [];
-      }
-      
-      userJourneys[clientId][sessionId].push({
-        path: pagePath,
-        title: pageTitle
-      });
-    });
+    // Analyze page performance for user journey insights
+    const pageData = data.rows.map(row => ({
+      path: row.dimensionValues[0]?.value || '',
+      title: row.dimensionValues[1]?.value || '',
+      sessions: parseInt(row.metricValues[0]?.value || '0'),
+      pageviews: parseInt(row.metricValues[1]?.value || '0')
+    })).sort((a, b) => b.sessions - a.sessions);
     
-    console.log(chalk.blue("👥 User Journeys:"));
+    console.log(chalk.blue("👥 User Journey Insights:"));
     console.log("");
     
-    // Show first 5 user journeys
-    const userEntries = Object.entries(userJourneys).slice(0, 5);
-    
-    userEntries.forEach(([clientId, sessions], userIndex) => {
-      console.log(chalk.cyan(`User ${userIndex + 1} (Client: ${clientId.substring(0, 8)}...):`));
-      
-      Object.entries(sessions).forEach(([sessionId, pages], sessionIndex) => {
-        console.log(chalk.gray(`  Session ${sessionIndex + 1}:`));
-        const pathString = pages.map(p => p.path).join(' → ');
-        console.log(chalk.gray(`    ${pathString}`));
-      });
+    // Show top pages that users visit
+    console.log(chalk.green("📊 Most Visited Pages:"));
+    pageData.slice(0, 10).forEach((page, index) => {
+      console.log(chalk.cyan(`${index + 1}. ${page.path}`));
+      console.log(chalk.gray(`   Title: ${page.title}`));
+      console.log(chalk.gray(`   Sessions: ${page.sessions}, Pageviews: ${page.pageviews}`));
       console.log("");
     });
+    
+    // Analyze user behavior patterns
+    console.log(chalk.green("🔍 User Behavior Patterns:"));
+    console.log("");
+    
+    const totalSessions = pageData.reduce((sum, p) => sum + p.sessions, 0);
+    const totalPageviews = pageData.reduce((sum, p) => sum + p.pageviews, 0);
+    const avgPagesPerSession = (totalPageviews / totalSessions).toFixed(1);
+    
+    console.log(chalk.gray(`Total Sessions: ${totalSessions}`));
+    console.log(chalk.gray(`Total Pageviews: ${totalPageviews}`));
+    console.log(chalk.gray(`Average Pages per Session: ${avgPagesPerSession}`));
+    console.log("");
+    
+    // Find entry and exit patterns
+    const homePage = pageData.find(p => p.path === '/');
+    const highTrafficPages = pageData.filter(p => p.sessions > totalSessions * 0.1);
+    
+    if (homePage) {
+      const homePageRate = ((homePage.sessions / totalSessions) * 100).toFixed(1);
+      console.log(chalk.green("🏠 Entry Point Analysis:"));
+      console.log(chalk.gray(`   Homepage sessions: ${homePage.sessions} (${homePageRate}% of total)`));
+      console.log("");
+    }
+    
+    if (highTrafficPages.length > 0) {
+      console.log(chalk.green("🔥 High-Traffic Pages:"));
+      highTrafficPages.forEach((page, index) => {
+        const pageRate = ((page.sessions / totalSessions) * 100).toFixed(1);
+        console.log(chalk.gray(`   ${index + 1}. ${page.path} (${pageRate}% of sessions)`));
+      });
+      console.log("");
+    }
     
   } catch (error) {
     console.log(chalk.red(`❌ Error analyzing user journeys: ${error.message}`));
@@ -272,7 +293,9 @@ async function analyzeFunnel(auth, propertyId, dateRange) {
     });
     
     if (!response.ok) {
-      throw new Error(`API Error: ${response.status}`);
+      const errorText = await response.text();
+      console.log(chalk.red(`API Error ${response.status}: ${errorText}`));
+      throw new Error(`API Error: ${response.status} - ${errorText}`);
     }
     
     const data = await response.json();
@@ -365,7 +388,9 @@ async function analyzeExitPages(auth, propertyId, dateRange) {
     });
     
     if (!response.ok) {
-      throw new Error(`API Error: ${response.status}`);
+      const errorText = await response.text();
+      console.log(chalk.red(`API Error ${response.status}: ${errorText}`));
+      throw new Error(`API Error: ${response.status} - ${errorText}`);
     }
     
     const data = await response.json();
@@ -430,7 +455,9 @@ async function analyzeLandingPages(auth, propertyId, dateRange) {
     });
     
     if (!response.ok) {
-      throw new Error(`API Error: ${response.status}`);
+      const errorText = await response.text();
+      console.log(chalk.red(`API Error ${response.status}: ${errorText}`));
+      throw new Error(`API Error: ${response.status} - ${errorText}`);
     }
     
     const data = await response.json();
