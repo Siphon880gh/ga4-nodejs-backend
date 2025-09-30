@@ -13,7 +13,7 @@ import inquirer from "inquirer";
 import ora from "ora";
 import chalk from "chalk";
 import { loadConfig } from "../utils/config.js";
-import { buildPrompts, buildPresetPrompts, buildAdhocPrompts, buildSiteSelectionPrompts, buildSortingPrompts, displaySortingFeedback } from "./prompts.js";
+import { buildPrompts, buildPresetPrompts, buildAdhocPrompts, buildSiteSelectionPrompts, buildSortingPrompts, displaySortingFeedback, buildSessionFlowPrompts } from "./prompts.js";
 import { runQuery } from "../core/query-runner.js";
 import { renderOutput } from "./renderers.js";
 import { getOAuth2Client, getAvailableProperties } from "../datasources/analytics.js";
@@ -175,6 +175,12 @@ async function main() {
         } else if (initialAnswers.action === "exit") {
           console.log(chalk.blue("Goodbye! 👋"));
           break;
+        } else if (initialAnswers.action === "session_flow") {
+          const { handleSessionFlowAnalysis } = await import('./session-flow-cli.js');
+          const sessionFlowAnswers = await inquirer.prompt(await buildSessionFlowPrompts(cfg));
+          await handleSessionFlowAnalysis(sessionFlowAnswers, cfg);
+          await waitForEnter();
+          continue;
         }
         
         // Skip query processing for non-query actions

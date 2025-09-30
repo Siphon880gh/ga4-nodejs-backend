@@ -5,7 +5,24 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import open from "open";
 import { getTokensForUser, storeTokensForUser } from '../utils/database.js';
+import { processRow } from '../utils/dimension-processors.js';
 import config from '../../config.js';
+
+/**
+ * Get the source dimension for API requests
+ * Maps derived dimensions to their source dimensions
+ */
+function getSourceDimensionForAPI(dimension, analyticsConfig) {
+  const dimensionMap = analyticsConfig.dimensions;
+  
+  // If it's a derived dimension, get the source dimension
+  if (dimensionMap[dimension]) {
+    return dimensionMap[dimension];
+  }
+  
+  // If it's already a source dimension, return as-is
+  return dimension;
+}
 
 export default async function runAnalytics(query, cfg, auth = null) {
   const analyticsConfig = cfg.sources.analytics;
@@ -22,20 +39,35 @@ export default async function runAnalytics(query, cfg, auth = null) {
 
   try {
     // Build the Analytics Data API request
+    // Map derived dimensions to their source dimensions for the API request
+    // Deduplicate API dimensions while preserving user-requested dimensions
+    const dimensionMapping = new Map(); // Maps API dimension to user dimensions
+    const apiDimensions = [];
+    
+    query.dimensions.forEach(dim => {
+      const sourceDim = getSourceDimensionForAPI(dim, analyticsConfig);
+      if (!dimensionMapping.has(sourceDim)) {
+        dimensionMapping.set(sourceDim, []);
+        apiDimensions.push({ name: sourceDim });
+      }
+      dimensionMapping.get(sourceDim).push(dim);
+    });
+    
     const requestBody = {
       dateRanges: [{
         startDate: query.dateRange.start,
         endDate: query.dateRange.end
       }],
-      dimensions: query.dimensions.map(dim => ({ name: dim })),
+      dimensions: apiDimensions,
       metrics: query.metrics.map(metric => ({ name: metric })),
       limit: query.limit || analyticsConfig.pageSize || 1000,
       offset: query.startRow || 0,
       orderBys: query.orderBys ? query.orderBys.map(orderBy => {
         const fieldName = orderBy.metric || orderBy.dimension;
+        const apiFieldName = getSourceDimensionForAPI(fieldName, analyticsConfig);
         return {
           metric: orderBy.metric ? { metricName: orderBy.metric } : undefined,
-          dimension: orderBy.dimension ? { dimensionName: orderBy.dimension } : undefined,
+          dimension: orderBy.dimension ? { dimensionName: apiFieldName } : undefined,
           desc: orderBy.desc || false
         };
       }) : undefined
@@ -74,10 +106,30 @@ export default async function runAnalytics(query, cfg, auth = null) {
     let rows = (responseData.rows || []).map(row => {
       const result = {};
       
-      // Add dimensions
+      // Add dimensions - map source dimensions to requested dimensions
       if (row.dimensionValues) {
-        query.dimensions.forEach((dimension, index) => {
-          result[dimension] = row.dimensionValues[index]?.value || '';
+        let dimensionIndex = 0;
+        apiDimensions.forEach(apiDim => {
+          const userDimensions = dimensionMapping.get(apiDim.name);
+          const value = row.dimensionValues[dimensionIndex]?.value || '';
+          
+          userDimensions.forEach(dimension => {
+            const sourceDim = getSourceDimensionForAPI(dimension, analyticsConfig);
+            // For derived dimensions, set both source and derived names
+            // For regular dimensions, set both source and derived names
+            if (sourceDim !== dimension) {
+              // This is a derived dimension - set both source and derived names
+              // The source dimension is needed for the processor to work
+              result[sourceDim] = value;
+              result[dimension] = value;
+            } else {
+              // This is a regular dimension - set both names
+              result[sourceDim] = value;
+              result[dimension] = value;
+            }
+          });
+          
+          dimensionIndex++;
         });
       }
       
@@ -90,6 +142,32 @@ export default async function runAnalytics(query, cfg, auth = null) {
       }
       
       return result;
+    });
+
+    // Apply dimension processors for derived dimensions
+    rows = rows.map(row => processRow(row, query.dimensions));
+
+    // Filter out source columns when derived columns are selected
+    rows = rows.map(row => {
+      const filteredRow = {};
+      const sourceColumns = new Set();
+      
+      // Identify source columns that should be hidden
+      query.dimensions.forEach(dimension => {
+        const sourceDim = getSourceDimensionForAPI(dimension, analyticsConfig);
+        if (sourceDim !== dimension) {
+          sourceColumns.add(sourceDim);
+        }
+      });
+      
+      // Only include columns that are not hidden source columns
+      Object.keys(row).forEach(key => {
+        if (!sourceColumns.has(key)) {
+          filteredRow[key] = row[key];
+        }
+      });
+      
+      return filteredRow;
     });
 
     console.log(chalk.gray(`Analytics API returned ${rows.length} rows (requested limit: ${requestBody.limit})`));

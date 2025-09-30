@@ -39,7 +39,6 @@ export default {
         pagePath: "pagePath",
         pageTitle: "pageTitle",
         landingPage: "landingPage",
-        exitPage: "pagePath",
         userType: "newVsReturning",
         trafficSource: "sessionDefaultChannelGrouping",
         hour: "hour",

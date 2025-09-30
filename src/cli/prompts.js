@@ -21,6 +21,7 @@ export async function buildPrompts(cfg) {
       choices: [
         { name: "Analytics Query: Ad-hoc", value: "adhoc" },
         { name: "Analytics Query: Report", value: "preset" },
+        { name: "Session Flow Analysis", value: "session_flow" },
         { name: "Analytics List properties", value: "sites" },
         { name: "Analytics Select property", value: "select_site" },
         { name: "Sign in with Google Account that has access to Analytics", value: "auth" },
@@ -350,4 +351,61 @@ export function displaySortingFeedback(sortingConfig) {
   }).join(', ');
   
   console.log(chalk.blue(`📊 Sorting applied: ${sortDescription}`));
+}
+
+/**
+ * Build session flow analysis prompts
+ */
+export async function buildSessionFlowPrompts(cfg) {
+  return [
+    {
+      type: "list",
+      name: "analysisType",
+      message: "What type of session flow analysis do you want?",
+      choices: [
+        { name: "Path Exploration (GA4 Interface)", value: "path_exploration" },
+        { name: "User Journey Analysis", value: "user_journey" },
+        { name: "Funnel Analysis", value: "funnel_analysis" },
+        { name: "Exit Page Analysis", value: "exit_analysis" },
+        { name: "Landing Page Analysis", value: "landing_analysis" },
+        { name: "Back to Main Menu", value: "back" },
+      ],
+    },
+    {
+      type: "list",
+      name: "dateRangeType",
+      message: "Date range for analysis",
+      choices: [
+        { name: "Last 7 days", value: "last7" },
+        { name: "Last 28 days", value: "last28" },
+        { name: "Last 90 days", value: "last90" },
+        { name: "Custom range", value: "custom" },
+      ],
+      when: (answers) => answers.analysisType !== "back",
+    },
+    {
+      type: "input",
+      name: "customStartDate",
+      message: "Start date (YYYY-MM-DD)",
+      when: (answers) => answers.dateRangeType === "custom",
+      validate: (input) => {
+        if (!input || !/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+          return "Please enter a valid date in YYYY-MM-DD format";
+        }
+        return true;
+      },
+    },
+    {
+      type: "input",
+      name: "customEndDate",
+      message: "End date (YYYY-MM-DD)",
+      when: (answers) => answers.dateRangeType === "custom",
+      validate: (input) => {
+        if (!input || !/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+          return "Please enter a valid date in YYYY-MM-DD format";
+        }
+        return true;
+      },
+    },
+  ];
 }
