@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import inquirer from "inquirer";
 import { getSelectedSite, getVerifiedSites, hasValidSiteSelection } from "../utils/site-manager.js";
 
 export async function buildPrompts(cfg) {
@@ -22,11 +23,14 @@ export async function buildPrompts(cfg) {
         { name: "Analytics Query: Ad-hoc", value: "adhoc" },
         { name: "Analytics Query: Report", value: "preset" },
         { name: "Session Flow Analysis", value: "session_flow" },
+        new inquirer.Separator(),
         { name: "Analytics List properties", value: "sites" },
         { name: "Analytics Select property", value: "select_site" },
+        new inquirer.Separator(),
         { name: "Sign in with Google Account that has access to Analytics", value: "auth" },
         { name: "Sign out", value: "signout" },
         { name: "Exit", value: "exit" },
+        new inquirer.Separator()
       ],
     },
   ];
@@ -282,12 +286,12 @@ export async function buildSortingPrompts(rows) {
   // Create organized choices with separators
   const choices = [
     { name: 'No Sorting', value: 'none' },
-    { name: '', value: '', disabled: true },
+    new inquirer.Separator(),
     ...availableColumns.map(column => ({
       name: `ASC: ${column}`,
       value: { column, direction: 'asc' }
     })),
-    { name: '', value: '', disabled: true },
+    new inquirer.Separator(),
     ...availableColumns.map(column => ({
       name: `DSC: ${column}`,
       value: { column, direction: 'desc' }

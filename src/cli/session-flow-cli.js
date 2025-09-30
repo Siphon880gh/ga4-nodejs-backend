@@ -1164,6 +1164,7 @@ async function exploreSessionDetails(auth, propertyId, dateRange, selectedSessio
     }
     
     // Show device and location insights
+    console.log("");
     console.log(chalk.blue("🌍 Session Context:"));
     console.log("");
     console.log(chalk.gray(`• Device Type: ${selectedSession.device}`));
