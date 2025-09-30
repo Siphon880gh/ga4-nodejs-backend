@@ -194,6 +194,23 @@ async function analyzePathExploration(auth, propertyId, dateRange) {
       console.log("");
     }
     
+    // Add session exploration option
+    const { exploreSessions } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'exploreSessions',
+        message: 'What would you like to explore next?',
+        choices: [
+          { name: 'View individual sessions with their journeys', value: 'individual' },
+          { name: 'Continue with current analysis', value: 'continue' }
+        ]
+      }
+    ]);
+    
+    if (exploreSessions === 'individual') {
+      await showIndividualSessions(auth, propertyId, dateRange);
+    }
+    
   } catch (error) {
     console.log(chalk.red(`❌ Error analyzing paths: ${error.message}`));
   }
@@ -663,6 +680,23 @@ async function analyzeUserJourney(auth, propertyId, dateRange) {
       console.log("");
     }
     
+    // Add session exploration option
+    const { exploreSessions } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'exploreSessions',
+        message: 'What would you like to explore next?',
+        choices: [
+          { name: 'View individual sessions with their journeys', value: 'individual' },
+          { name: 'Continue with current analysis', value: 'continue' }
+        ]
+      }
+    ]);
+    
+    if (exploreSessions === 'individual') {
+      await showIndividualSessions(auth, propertyId, dateRange);
+    }
+    
   } catch (error) {
     console.log(chalk.red(`❌ Error analyzing user journeys: ${error.message}`));
   }
@@ -758,6 +792,23 @@ async function analyzeFunnel(auth, propertyId, dateRange) {
       }
     }
     
+    // Add session exploration option
+    const { exploreSessions } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'exploreSessions',
+        message: 'What would you like to explore next?',
+        choices: [
+          { name: 'View individual sessions with their journeys', value: 'individual' },
+          { name: 'Continue with current analysis', value: 'continue' }
+        ]
+      }
+    ]);
+    
+    if (exploreSessions === 'individual') {
+      await showIndividualSessions(auth, propertyId, dateRange);
+    }
+    
   } catch (error) {
     console.log(chalk.red(`❌ Error analyzing funnel: ${error.message}`));
   }
@@ -823,6 +874,23 @@ async function analyzeExitPages(auth, propertyId, dateRange) {
       console.log(chalk.gray(`   Estimated Exit Rate: ${exitRate}%`));
       console.log("");
     });
+    
+    // Add session exploration option
+    const { exploreSessions } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'exploreSessions',
+        message: 'What would you like to explore next?',
+        choices: [
+          { name: 'View individual sessions with their journeys', value: 'individual' },
+          { name: 'Continue with current analysis', value: 'continue' }
+        ]
+      }
+    ]);
+    
+    if (exploreSessions === 'individual') {
+      await showIndividualSessions(auth, propertyId, dateRange);
+    }
     
   } catch (error) {
     console.log(chalk.red(`❌ Error analyzing exit pages: ${error.message}`));
@@ -890,6 +958,23 @@ async function analyzeLandingPages(auth, propertyId, dateRange) {
       console.log(chalk.gray(`   Source: ${page.source}, Medium: ${page.medium}`));
       console.log("");
     });
+    
+    // Add session exploration option
+    const { exploreSessions } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'exploreSessions',
+        message: 'What would you like to explore next?',
+        choices: [
+          { name: 'View individual sessions with their journeys', value: 'individual' },
+          { name: 'Continue with current analysis', value: 'continue' }
+        ]
+      }
+    ]);
+    
+    if (exploreSessions === 'individual') {
+      await showIndividualSessions(auth, propertyId, dateRange);
+    }
     
   } catch (error) {
     console.log(chalk.red(`❌ Error analyzing landing pages: ${error.message}`));

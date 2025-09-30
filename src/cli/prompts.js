@@ -367,7 +367,7 @@ export async function buildSessionFlowPrompts(cfg) {
       name: "analysisType",
       message: "What type of session flow analysis do you want?",
       choices: [
-        { name: "Path Exploration (GA4 Interface)", value: "path_exploration" },
+        { name: "Path Exploration", value: "path_exploration" },
         { name: "User Journey Analysis", value: "user_journey" },
         { name: "Funnel Analysis", value: "funnel_analysis" },
         { name: "Exit Page Analysis", value: "exit_analysis" },

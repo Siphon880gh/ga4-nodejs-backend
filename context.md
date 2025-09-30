@@ -38,10 +38,11 @@ src/
 ## Key Files
 
 ### Core Components
-- **`src/cli/index.js`** (248 lines) - Main CLI entry point with continuous loop
-- **`src/datasources/analytics.js`** (390 lines) - GA4 API with direct REST API calls
-- **`src/api/jwt-routes.js`** (710 lines) - JWT authentication routes and middleware
-- **`src/utils/database.js`** (114 lines) - SQLite database operations
+- **`src/cli/index.js`** (267 lines) - Main CLI entry point with continuous loop
+- **`src/cli/session-flow-cli.js`** (1496 lines) - Interactive session flow analysis with ASCII graphics
+- **`src/datasources/analytics.js`** (467 lines) - GA4 API with direct REST API calls
+- **`src/api/jwt-routes.js`** (709 lines) - JWT authentication routes and middleware
+- **`src/utils/database.js`** (113 lines) - SQLite database operations
 - **`config.js`** (211 lines) - Configuration with GA4 presets
 
 **Detailed Implementation**: See feature-specific context files for complete technical details.
@@ -126,11 +127,12 @@ Interactive menu system with continuous loop:
 
 1. **Analytics Query: Ad-hoc** - Execute custom GA4 queries with metric/dimension selection
 2. **Analytics Query: Report** - Execute predefined preset queries
-3. **Analytics List properties** - Show GA4 properties
-4. **Analytics Select property** - Interactive property selection with memory
-5. **Sign in with Google** - OAuth2 flow setup
-6. **Sign out** - Clear authentication data
-7. **Exit** - Properly terminate the CLI
+3. **Session Flow Analysis** - Interactive session flow analysis with ASCII graphics
+4. **Analytics List properties** - Show GA4 properties
+5. **Analytics Select property** - Interactive property selection with memory
+6. **Sign in with Google** - OAuth2 flow setup
+7. **Sign out** - Clear authentication data
+8. **Exit** - Properly terminate the CLI
 
 **Detailed Implementation**: See [context-cli.md](./context-cli.md) for complete CLI system details.
 
@@ -156,6 +158,46 @@ Interactive menu system with continuous loop:
 - **Automatic Usage**: Selected property is automatically used for all queries
 
 **Detailed Implementation**: See [context-site-selection.md](./context-site-selection.md) for complete technical details.
+
+## Session Flow Analysis
+
+Interactive session flow analysis with multi-level exploration and ASCII graphics:
+
+### Analysis Types
+- **Path Exploration** - Page-level analysis with interactive selection and ASCII path diagrams
+- **User Journey Analysis** - User behavior patterns with device/geographic breakdown
+- **Funnel Analysis** - Conversion funnel visualization with step-by-step analysis
+- **Exit Page Analysis** - Exit rate calculations and page performance metrics
+- **Landing Page Analysis** - Entry point analysis with source/medium breakdown
+- **Session Exploration** - Individual session analysis with detailed journey paths
+
+### Interactive Features
+- **Multi-Level Exploration** - Drill down from broad analytics to individual sessions
+- **ASCII Graphics** - Visual path flow diagrams with traffic intensity indicators
+- **Session Selection** - Choose specific pages or sessions for detailed analysis
+- **Real-time Insights** - Behavioral analysis with engagement metrics
+- **Timeline Visualization** - Session timelines with percentage-based ASCII bars
+
+### Key Implementation
+```javascript
+// Session flow analysis entry point
+export async function handleSessionFlowAnalysis(answers, cfg) {
+  // Multi-level analysis with interactive selection
+  switch (answers.analysisType) {
+    case "path_exploration": await analyzePathExploration(auth, propertyId, dateRange); break;
+    case "session_exploration": await analyzeSessionExploration(auth, propertyId, dateRange); break;
+    // ... other analysis types
+  }
+}
+
+// Individual session exploration with ASCII graphics
+async function showIndividualSessions(auth, propertyId, dateRange) {
+  // Lists individual sessions with complete page journeys
+  // Interactive selection for detailed session analysis
+}
+```
+
+**File**: `src/cli/session-flow-cli.js` (1496 lines) - Complete session flow analysis system
 
 ## Authentication Helper
 
@@ -193,6 +235,13 @@ GA_CREDENTIALS_FILE=./env/client_secret_*.json
 **Detailed Implementation**: See [context-api.md](./context-api.md) for complete API documentation and JWT authentication details.
 
 ## Recent Updates
+
+### Session Flow Analysis Enhancement (v3.2)
+- ✅ **Page Exploration** - Added specific page path exploration with detailed session analysis
+- ✅ **Broad Path Statistics** - Comprehensive path exploration stats with traffic flow analysis
+- ✅ **Session-Level Analysis** - Individual session exploration with complete page journeys
+- ✅ **ASCII Graphics** - Enhanced visual path flow diagrams with traffic intensity indicators
+- ✅ **Multi-Level Exploration** - Drill down from broad analytics to individual sessions
 
 ### Authentication Fix (v3.1)
 - ✅ **Consistent REST API** - Fixed authentication issues by using direct REST API calls for all operations
