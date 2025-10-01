@@ -24,6 +24,22 @@ function getSourceDimensionForAPI(dimension, analyticsConfig) {
   return dimension;
 }
 
+/**
+ * Get the source metric for API requests
+ * Maps user-friendly metric names to Analytics API metric names
+ */
+function getSourceMetricForAPI(metric, analyticsConfig) {
+  const metricMap = analyticsConfig.metrics;
+  
+  // If it's a user-friendly metric name, get the API metric name
+  if (metricMap[metric]) {
+    return metricMap[metric];
+  }
+  
+  // If it's already an API metric name, return as-is
+  return metric;
+}
+
 export default async function runAnalytics(query, cfg, auth = null) {
   const analyticsConfig = cfg.sources.analytics;
   const propertyId = process.env.GA_PROPERTY_ID || analyticsConfig.propertyId;
@@ -59,14 +75,14 @@ export default async function runAnalytics(query, cfg, auth = null) {
         endDate: query.dateRange.end
       }],
       dimensions: apiDimensions,
-      metrics: query.metrics.map(metric => ({ name: metric })),
+      metrics: query.metrics.map(metric => ({ name: getSourceMetricForAPI(metric, analyticsConfig) })),
       limit: query.limit || analyticsConfig.pageSize || 1000,
       offset: query.startRow || 0,
       orderBys: query.orderBys ? query.orderBys.map(orderBy => {
         const fieldName = orderBy.metric || orderBy.dimension;
         const apiFieldName = getSourceDimensionForAPI(fieldName, analyticsConfig);
         return {
-          metric: orderBy.metric ? { metricName: orderBy.metric } : undefined,
+          metric: orderBy.metric ? { metricName: getSourceMetricForAPI(orderBy.metric, analyticsConfig) } : undefined,
           dimension: orderBy.dimension ? { dimensionName: apiFieldName } : undefined,
           desc: orderBy.desc || false
         };
