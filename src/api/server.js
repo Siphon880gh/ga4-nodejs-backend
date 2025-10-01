@@ -19,7 +19,7 @@ app.use("/", jwtRoutes);
 app.get("/health", (req, res) => {
   res.json({ 
     success: true, 
-    message: "GSC API Server is running",
+    message: "GA4 API Server is running",
     timestamp: new Date().toISOString()
   });
 });
@@ -33,18 +33,24 @@ app.use("*", (req, res) => {
       "GET /health",
       "POST /api/auth/signup",
       "POST /api/auth/login",
+      "POST /api/auth/oauth",
       "POST /api/auth/logout",
       "DELETE /api/auth/user",
       "GET /api/status",
-      "GET /api/sites",
-      "GET /api/sites/verified",
-      "POST /api/sites/select",
-      "GET /api/sites/current",
-      "DELETE /api/sites/current",
+      "GET /api/properties",
+      "GET /api/properties/verified",
+      "POST /api/properties/select",
+      "GET /api/properties/current",
+      "DELETE /api/properties/current",
       "POST /api/query/adhoc",
       "POST /api/query/preset",
+      "POST /api/query/filter",
+      "POST /api/query/paginate",
       "GET /api/presets",
-      "GET /api/schema"
+      "GET /api/schema",
+      "POST /api/export/file",
+      "POST /api/session-flow/explore",
+      "POST /api/session-flow/analyze"
     ]
   });
 });
@@ -56,7 +62,7 @@ console.log("✅ Database initialized successfully");
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 GSC API Server (JWT) running on port ${PORT}`);
+  console.log(`🚀 GA4 API Server (JWT) running on port ${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔐 Authentication: POST /api/auth/login`);
   console.log(`📚 API Documentation: http://localhost:${PORT}/api/status`);

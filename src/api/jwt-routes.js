@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import express from "express";
 import { loadConfig } from "../utils/config.js";
-import { getOAuth2Client, getAvailableSites } from "../datasources/searchconsole.js";
+import { getOAuth2Client, getAvailableProperties } from "../datasources/analytics.js";
 import { runQuery } from "../core/query-runner.js";
 import { 
   saveSelectedSite, 
@@ -41,7 +41,7 @@ async function getUserOAuthClient(userId, cfg) {
   const { OAuth2Client } = await import('google-auth-library');
   const { readFileSync } = await import('fs');
   
-  const credentialsPath = cfg.sources.searchconsole.credentialsFile || process.env.GSC_CREDENTIALS_FILE;
+  const credentialsPath = cfg.sources.analytics.credentialsFile || process.env.GA_CREDENTIALS_FILE;
   const credentialsContent = readFileSync(credentialsPath, 'utf8');
   const credentials = JSON.parse(credentialsContent);
   
@@ -222,22 +222,22 @@ router.post("/api/auth/oauth", async (req, res) => {
     setUserId(userId);
     const cfg = loadConfig();
     
-    // Set a dummy site URL for authentication
-    const originalSiteUrl = process.env.GSC_SITE_URL;
-    process.env.GSC_SITE_URL = "https://example.com/";
+    // Set a dummy property ID for authentication
+    const originalPropertyId = process.env.GA_PROPERTY_ID;
+    process.env.GA_PROPERTY_ID = "123456789";
     
-    const auth = await getOAuth2Client(cfg.sources.searchconsole);
+    const auth = await getOAuth2Client(cfg.sources.analytics);
     
     // Store OAuth tokens for this user
     if (auth.credentials) {
       storeTokensForUser(userId, auth.credentials);
     }
     
-    // Restore original site URL
-    if (originalSiteUrl) {
-      process.env.GSC_SITE_URL = originalSiteUrl;
+    // Restore original property ID
+    if (originalPropertyId) {
+      process.env.GA_PROPERTY_ID = originalPropertyId;
     } else {
-      delete process.env.GSC_SITE_URL;
+      delete process.env.GA_PROPERTY_ID;
     }
     
     res.json({
@@ -317,8 +317,8 @@ router.get("/api/status", authenticateToken, async (req, res) => {
     setUserId(userId);
     
     const cfg = loadConfig();
-    const currentSite = getSelectedSite();
-    const hasValidSite = hasValidSiteSelection();
+    const currentProperty = getSelectedSite();
+    const hasValidProperty = hasValidSiteSelection();
     
     let authStatus = false;
     try {
@@ -332,8 +332,8 @@ router.get("/api/status", authenticateToken, async (req, res) => {
       success: true,
       userId: userId,
       authenticated: authStatus,
-      currentSite: currentSite,
-      hasValidSite: hasValidSite,
+      currentProperty: currentProperty,
+      hasValidProperty: hasValidProperty,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -341,86 +341,86 @@ router.get("/api/status", authenticateToken, async (req, res) => {
   }
 });
 
-// Site management endpoints
-router.get("/api/sites", authenticateToken, async (req, res) => {
+// Property management endpoints
+router.get("/api/properties", authenticateToken, async (req, res) => {
   try {
     const userId = getUserId(req);
     setUserId(userId);
     
     const cfg = loadConfig();
     const auth = await getUserOAuthClient(userId, cfg);
-    const sites = await getAvailableSites(cfg, auth);
+    const properties = await getAvailableProperties(cfg);
     
-    const currentSite = getSelectedSite();
+    const currentProperty = getSelectedSite();
     
     res.json({
       success: true,
-      sites: sites,
-      currentSite: currentSite,
-      total: sites.length
+      properties: properties,
+      currentProperty: currentProperty,
+      total: properties.length
     });
   } catch (error) {
     handleError(res, error, 500);
   }
 });
 
-router.get("/api/sites/verified", authenticateToken, async (req, res) => {
+router.get("/api/properties/verified", authenticateToken, async (req, res) => {
   try {
     const userId = getUserId(req);
     setUserId(userId);
     
     const cfg = loadConfig();
     const auth = await getUserOAuthClient(userId, cfg);
-    const verifiedSites = await getVerifiedSites(cfg, auth);
+    const verifiedProperties = await getAvailableProperties(cfg);
     
     res.json({
       success: true,
-      sites: verifiedSites,
-      total: verifiedSites.length
+      properties: verifiedProperties,
+      total: verifiedProperties.length
     });
   } catch (error) {
     handleError(res, error, 500);
   }
 });
 
-router.post("/api/sites/select", authenticateToken, async (req, res) => {
+router.post("/api/properties/select", authenticateToken, async (req, res) => {
   try {
     const userId = getUserId(req);
     setUserId(userId);
     
-    const { siteUrl } = req.body;
-    if (!siteUrl) {
+    const { propertyId } = req.body;
+    if (!propertyId) {
       return res.status(400).json({
         success: false,
-        error: "siteUrl is required in request body"
+        error: "propertyId is required in request body"
       });
     }
     
     const cfg = loadConfig();
     await ensureAuthentication(cfg);
     
-    // Verify the site exists and user has access
-    const verifiedSites = await getVerifiedSites(cfg);
-    const siteExists = verifiedSites.some(site => site.siteUrl === siteUrl);
+    // Verify the property exists and user has access
+    const verifiedProperties = await getAvailableProperties(cfg);
+    const propertyExists = verifiedProperties.some(prop => prop.propertyId === propertyId);
     
-    if (!siteExists) {
+    if (!propertyExists) {
       return res.status(400).json({
         success: false,
-        error: "Site not found or you don't have access to it"
+        error: "Property not found or you don't have access to it"
       });
     }
     
-    const success = saveSelectedSite(siteUrl);
+    const success = saveSelectedSite(propertyId);
     if (success) {
       res.json({
         success: true,
-        message: `Selected site: ${siteUrl}`,
-        selectedSite: siteUrl
+        message: `Selected property: ${propertyId}`,
+        selectedProperty: propertyId
       });
     } else {
       res.status(500).json({
         success: false,
-        error: "Failed to save site selection"
+        error: "Failed to save property selection"
       });
     }
   } catch (error) {
@@ -428,25 +428,25 @@ router.post("/api/sites/select", authenticateToken, async (req, res) => {
   }
 });
 
-router.get("/api/sites/current", authenticateToken, async (req, res) => {
+router.get("/api/properties/current", authenticateToken, async (req, res) => {
   try {
     const userId = getUserId(req);
     setUserId(userId);
     
-    const currentSite = getSelectedSite();
-    const hasValidSite = hasValidSiteSelection();
+    const currentProperty = getSelectedSite();
+    const hasValidProperty = hasValidSiteSelection();
     
     res.json({
       success: true,
-      currentSite: currentSite,
-      hasValidSite: hasValidSite
+      currentProperty: currentProperty,
+      hasValidProperty: hasValidProperty
     });
   } catch (error) {
     handleError(res, error, 500);
   }
 });
 
-router.delete("/api/sites/current", authenticateToken, async (req, res) => {
+router.delete("/api/properties/current", authenticateToken, async (req, res) => {
   try {
     const userId = getUserId(req);
     setUserId(userId);
@@ -455,12 +455,12 @@ router.delete("/api/sites/current", authenticateToken, async (req, res) => {
     if (success) {
       res.json({
         success: true,
-        message: "Selected site cleared"
+        message: "Selected property cleared"
       });
     } else {
       res.status(500).json({
         success: false,
-        error: "Failed to clear site selection"
+        error: "Failed to clear property selection"
       });
     }
   } catch (error) {
@@ -475,8 +475,8 @@ router.post("/api/query/adhoc", authenticateToken, async (req, res) => {
     setUserId(userId);
     
     const {
-      metrics = ["clicks", "impressions", "ctr", "position"],
-      dimensions = ["query"],
+      metrics = ["sessions", "users", "pageviews", "bounceRate"],
+      dimensions = ["pageTitle"],
       dateRangeType = "last7",
       customStartDate,
       customEndDate,
@@ -502,17 +502,17 @@ router.post("/api/query/adhoc", authenticateToken, async (req, res) => {
     
     const cfg = loadConfig();
     
-    // Check if we have a valid site selection
+    // Check if we have a valid property selection
     if (!hasValidSiteSelection()) {
       return res.status(400).json({
         success: false,
-        error: "No Google Search Console site selected. Please select a site first."
+        error: "No Google Analytics property selected. Please select a property first."
       });
     }
     
-    // Set the selected site as environment variable
-    const selectedSite = getSelectedSite();
-    process.env.GSC_SITE_URL = selectedSite;
+    // Set the selected property as environment variable
+    const selectedProperty = getSelectedSite();
+    process.env.GA_PROPERTY_ID = selectedProperty;
     
     // Ensure authentication
     const auth = await ensureAuthentication(cfg);
@@ -520,7 +520,7 @@ router.post("/api/query/adhoc", authenticateToken, async (req, res) => {
     // Build query parameters
     const answers = {
       action: "adhoc",
-      source: "searchconsole",
+      source: "analytics",
       metrics,
       dimensions,
       dateRangeType,
@@ -543,14 +543,14 @@ router.post("/api/query/adhoc", authenticateToken, async (req, res) => {
     if (outputFormat === "csv") {
       responseData = stringify(sortedRows, { header: true });
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', 'attachment; filename="gsc-data.csv"');
+      res.setHeader('Content-Disposition', 'attachment; filename="ga4-data.csv"');
       return res.send(responseData);
     } else {
       responseData = {
         success: true,
         data: sortedRows,
         total: sortedRows.length,
-        site: selectedSite,
+        property: selectedProperty,
         query: {
           metrics,
           dimensions,
@@ -597,17 +597,17 @@ router.post("/api/query/preset", authenticateToken, async (req, res) => {
     
     const cfg = loadConfig();
     
-    // Check if we have a valid site selection
+    // Check if we have a valid property selection
     if (!hasValidSiteSelection()) {
       return res.status(400).json({
         success: false,
-        error: "No Google Search Console site selected. Please select a site first."
+        error: "No Google Analytics property selected. Please select a property first."
       });
     }
     
-    // Set the selected site as environment variable
-    const selectedSite = getSelectedSite();
-    process.env.GSC_SITE_URL = selectedSite;
+    // Set the selected property as environment variable
+    const selectedProperty = getSelectedSite();
+    process.env.GA_PROPERTY_ID = selectedProperty;
     
     // Ensure authentication
     const auth = await ensureAuthentication(cfg);
@@ -615,7 +615,7 @@ router.post("/api/query/preset", authenticateToken, async (req, res) => {
     // Build query parameters
     const answers = {
       action: "preset",
-      source: "searchconsole",
+      source: "analytics",
       preset,
       dateRangeType,
       customStartDate,
@@ -631,14 +631,14 @@ router.post("/api/query/preset", authenticateToken, async (req, res) => {
     if (outputFormat === "csv") {
       responseData = stringify(rows, { header: true });
       res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', 'attachment; filename="gsc-preset-data.csv"');
+      res.setHeader('Content-Disposition', 'attachment; filename="ga4-preset-data.csv"');
       return res.send(responseData);
     } else {
       responseData = {
         success: true,
         data: rows,
         total: rows.length,
-        site: selectedSite,
+        property: selectedProperty,
         preset: preset,
         query: {
           dateRange: {
@@ -668,7 +668,7 @@ router.get("/api/presets", authenticateToken, async (req, res) => {
     setUserId(userId);
     
     const cfg = loadConfig();
-    const presets = cfg.presets.filter(p => p.source === "searchconsole" || p.source === "any");
+    const presets = cfg.presets.filter(p => p.source === "analytics" || p.source === "any");
     
     res.json({
       success: true,
@@ -691,13 +691,302 @@ router.get("/api/schema", authenticateToken, async (req, res) => {
     setUserId(userId);
     
     const cfg = loadConfig();
-    const sourceConfig = cfg.sources.searchconsole;
+    const sourceConfig = cfg.sources.analytics;
     
     res.json({
       success: true,
       metrics: sourceConfig.metrics || {},
       dimensions: sourceConfig.dimensions || {}
     });
+  } catch (error) {
+    handleError(res, error, 500);
+  }
+});
+
+// Advanced Filtering endpoints
+router.post("/api/query/filter", authenticateToken, async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    setUserId(userId);
+    
+    const {
+      data,
+      filters
+    } = req.body;
+    
+    if (!data || !Array.isArray(data)) {
+      return res.status(400).json({
+        success: false,
+        error: "data array is required"
+      });
+    }
+    
+    if (!filters || !Array.isArray(filters)) {
+      return res.status(400).json({
+        success: false,
+        error: "filters array is required"
+      });
+    }
+    
+    // Import filtering functions
+    const { applyAllFilters } = await import('../cli/renderers.js');
+    
+    // Apply filters to data
+    const filteredData = applyAllFilters(data, filters);
+    
+    res.json({
+      success: true,
+      originalCount: data.length,
+      filteredCount: filteredData.length,
+      data: filteredData,
+      filters: filters
+    });
+  } catch (error) {
+    handleError(res, error, 500);
+  }
+});
+
+// File Export endpoints
+router.post("/api/export/file", authenticateToken, async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    setUserId(userId);
+    
+    const {
+      data,
+      format = "csv",
+      filename,
+      includeTimestamp = true
+    } = req.body;
+    
+    if (!data || !Array.isArray(data)) {
+      return res.status(400).json({
+        success: false,
+        error: "data array is required"
+      });
+    }
+    
+    // Import file saving functions
+    const { save } = await import('../cli/renderers.js');
+    
+    // Generate filename if not provided
+    let finalFilename = filename;
+    if (!finalFilename) {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      finalFilename = `ga4-export-${timestamp}.${format}`;
+    }
+    
+    // Save file
+    const filePath = await save(JSON.stringify(data, null, 2), format, { output: { outDir: "./.out" } });
+    
+    res.json({
+      success: true,
+      message: "File exported successfully",
+      filePath: filePath,
+      filename: finalFilename,
+      format: format,
+      recordCount: data.length
+    });
+  } catch (error) {
+    handleError(res, error, 500);
+  }
+});
+
+// Pagination endpoints
+router.post("/api/query/paginate", authenticateToken, async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    setUserId(userId);
+    
+    const {
+      data,
+      page = 1,
+      pageSize = 50,
+      sorting
+    } = req.body;
+    
+    if (!data || !Array.isArray(data)) {
+      return res.status(400).json({
+        success: false,
+        error: "data array is required"
+      });
+    }
+    
+    // Import sorting functions
+    const { applySorting } = await import('../cli/renderers.js');
+    
+    // Apply sorting if provided
+    let sortedData = data;
+    if (sorting && sorting.columns && !sorting.columns.includes('none')) {
+      sortedData = applySorting(data, sorting);
+    }
+    
+    // Calculate pagination
+    const totalRecords = sortedData.length;
+    const totalPages = Math.ceil(totalRecords / pageSize);
+    const startIndex = (page - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const paginatedData = sortedData.slice(startIndex, endIndex);
+    
+    res.json({
+      success: true,
+      data: paginatedData,
+      pagination: {
+        currentPage: page,
+        pageSize: pageSize,
+        totalRecords: totalRecords,
+        totalPages: totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+        startIndex: startIndex,
+        endIndex: Math.min(endIndex, totalRecords)
+      }
+    });
+  } catch (error) {
+    handleError(res, error, 500);
+  }
+});
+
+// Session Flow Analysis endpoints
+router.post("/api/session-flow/explore", authenticateToken, async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    setUserId(userId);
+    
+    const {
+      analysisType,
+      dateRangeType = "last7",
+      customStartDate,
+      customEndDate,
+      limit = 1000
+    } = req.body;
+    
+    if (!analysisType) {
+      return res.status(400).json({
+        success: false,
+        error: "analysisType is required"
+      });
+    }
+    
+    const cfg = loadConfig();
+    
+    // Check if we have a valid property selection
+    if (!hasValidSiteSelection()) {
+      return res.status(400).json({
+        success: false,
+        error: "No Google Analytics property selected. Please select a property first."
+      });
+    }
+    
+    // Set the selected property as environment variable
+    const selectedProperty = getSelectedSite();
+    process.env.GA_PROPERTY_ID = selectedProperty;
+    
+    // Ensure authentication
+    const auth = await ensureAuthentication(cfg);
+    
+    // Import session flow analysis functions
+    const { handleSessionFlowAnalysis } = await import('../cli/session-flow-cli.js');
+    
+    // Build analysis parameters
+    const answers = {
+      analysisType,
+      dateRangeType,
+      customStartDate,
+      customEndDate
+    };
+    
+    // Run the session flow analysis
+    const result = await handleSessionFlowAnalysis(answers, cfg);
+    
+    res.json({
+      success: true,
+      analysisType,
+      property: selectedProperty,
+      dateRange: {
+        start: customStartDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        end: customEndDate || new Date().toISOString().split('T')[0]
+      },
+      result
+    });
+  } catch (error) {
+    handleError(res, error, 500);
+  }
+});
+
+router.post("/api/session-flow/analyze", authenticateToken, async (req, res) => {
+  try {
+    const userId = getUserId(req);
+    setUserId(userId);
+    
+    const {
+      analysisType,
+      dateRangeType = "last7",
+      customStartDate,
+      customEndDate,
+      limit = 1000,
+      outputFormat = "json"
+    } = req.body;
+    
+    if (!analysisType) {
+      return res.status(400).json({
+        success: false,
+        error: "analysisType is required"
+      });
+    }
+    
+    const cfg = loadConfig();
+    
+    // Check if we have a valid property selection
+    if (!hasValidSiteSelection()) {
+      return res.status(400).json({
+        success: false,
+        error: "No Google Analytics property selected. Please select a property first."
+      });
+    }
+    
+    // Set the selected property as environment variable
+    const selectedProperty = getSelectedSite();
+    process.env.GA_PROPERTY_ID = selectedProperty;
+    
+    // Ensure authentication
+    const auth = await ensureAuthentication(cfg);
+    
+    // Import session flow analysis functions
+    const { handleSessionFlowAnalysis } = await import('../cli/session-flow-cli.js');
+    
+    // Build analysis parameters
+    const answers = {
+      analysisType,
+      dateRangeType,
+      customStartDate,
+      customEndDate
+    };
+    
+    // Run the session flow analysis
+    const result = await handleSessionFlowAnalysis(answers, cfg);
+    
+    // Format response based on output format
+    let responseData;
+    if (outputFormat === "csv") {
+      responseData = stringify(result, { header: true });
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', 'attachment; filename="ga4-session-flow.csv"');
+      return res.send(responseData);
+    } else {
+      responseData = {
+        success: true,
+        analysisType,
+        property: selectedProperty,
+        dateRange: {
+          start: customStartDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          end: customEndDate || new Date().toISOString().split('T')[0]
+        },
+        result
+      };
+      
+      res.json(responseData);
+    }
   } catch (error) {
     handleError(res, error, 500);
   }

@@ -1,8 +1,8 @@
-# API Endpoints - Technical Details
+# GA4 API Endpoints - Technical Details
 
 ## Overview
 
-Complete REST API implementation providing all CLI functionality as HTTP endpoints with multi-user support and JWT authentication. Supports both user-based routing and secure token-based authentication for production deployment.
+Complete REST API implementation providing all CLI functionality as HTTP endpoints with multi-user support and JWT authentication for Google Analytics 4. Supports both user-based routing and secure token-based authentication for production deployment.
 
 ## API Architecture
 
@@ -24,7 +24,7 @@ app.use('/', jwtRoutes);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ success: true, message: "GSC API Server is running" });
+  res.json({ success: true, message: "GA4 API Server is running" });
 });
 ```
 
@@ -122,30 +122,30 @@ Authorization: Bearer <token>
   "success": true,
   "userId": "user123",
   "authenticated": true,
-  "currentSite": "https://example.com/",
-  "hasValidSite": true,
+  "currentProperty": "123456789",
+  "hasValidProperty": true,
   "timestamp": "2024-01-01T00:00:00.000Z"
 }
 ```
 
-### Site Management
+### Property Management
 
-#### List All Sites
+#### List All Properties
 ```http
-GET /api/{userId}/sites          # Standard API
-GET /api/sites                   # JWT API
-Authorization: Bearer <token>    # JWT API only
+GET /api/{userId}/properties     # Standard API
+GET /api/properties              # JWT API
+Authorization: Bearer <token>     # JWT API only
 ```
 
-#### Select Site
+#### Select Property
 ```http
-POST /api/{userId}/sites/select  # Standard API
-POST /api/sites/select           # JWT API
-Authorization: Bearer <token>    # JWT API only
+POST /api/{userId}/properties/select  # Standard API
+POST /api/properties/select            # JWT API
+Authorization: Bearer <token>         # JWT API only
 Content-Type: application/json
 
 {
-  "siteUrl": "https://example.com/"
+  "propertyId": "123456789"
 }
 ```
 
@@ -159,14 +159,14 @@ Authorization: Bearer <token>    # JWT API only
 Content-Type: application/json
 
 {
-  "metrics": ["clicks", "impressions", "ctr", "position"],
-  "dimensions": ["query", "page"],
+  "metrics": ["sessions", "users", "pageviews", "bounceRate"],
+  "dimensions": ["pageTitle", "pagePath"],
   "dateRangeType": "last7",
   "limit": 1000,
   "outputFormat": "json",
   "sorting": {
     "columns": [
-      {"column": "clicks", "direction": "desc"}
+      {"column": "sessions", "direction": "desc"}
     ]
   }
 }
@@ -180,10 +180,115 @@ Authorization: Bearer <token>    # JWT API only
 Content-Type: application/json
 
 {
-  "preset": "top-queries",
+  "preset": "top-pages",
   "dateRangeType": "last28",
   "limit": 500,
   "outputFormat": "json"
+}
+```
+
+#### Advanced Filtering
+```http
+POST /api/query/filter
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "data": [
+    {"pageTitle": "Home", "sessions": 100, "users": 80},
+    {"pageTitle": "About", "sessions": 50, "users": 40}
+  ],
+  "filters": [
+    {
+      "field": "sessions",
+      "operator": ">",
+      "value": 30
+    }
+  ]
+}
+```
+
+**Filter Operators:**
+- `=` - Exact match
+- `*` - Contains
+- `<>` - Not equal
+- `<*>` - Not contains
+- `>` - Greater than
+- `<` - Less than
+- `>=` - Greater than or equal
+- `<=` - Less than or equal
+
+#### Pagination
+```http
+POST /api/query/paginate
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "data": [...],
+  "page": 1,
+  "pageSize": 50,
+  "sorting": {
+    "columns": [
+      {"column": "sessions", "direction": "desc"}
+    ]
+  }
+}
+```
+
+#### File Export
+```http
+POST /api/export/file
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "data": [...],
+  "format": "csv",
+  "filename": "my-export.csv",
+  "includeTimestamp": true
+}
+```
+
+**Supported Formats:**
+- `json` - JSON format
+- `csv` - CSV format
+- `table` - Table format
+
+#### Session Flow Analysis
+```http
+POST /api/session-flow/explore
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "analysisType": "path_exploration",
+  "dateRangeType": "last7",
+  "customStartDate": "2024-01-01",
+  "customEndDate": "2024-01-07",
+  "limit": 1000
+}
+```
+
+**Available Analysis Types:**
+- `path_exploration` - Analyze user navigation paths
+- `user_journey` - User journey analysis
+- `funnel_analysis` - Funnel conversion analysis
+- `exit_analysis` - Exit page analysis
+- `landing_analysis` - Landing page analysis
+- `session_exploration` - Individual session exploration
+
+#### Session Flow Analysis with Export
+```http
+POST /api/session-flow/analyze
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "analysisType": "landing_analysis",
+  "dateRangeType": "last28",
+  "limit": 500,
+  "outputFormat": "csv"
 }
 ```
 
@@ -218,7 +323,7 @@ CREATE TABLE oauth_tokens (
 );
 ```
 
-### Selected Sites Table
+### Selected Properties Table
 
 ```sql
 CREATE TABLE selected_sites (
@@ -239,7 +344,7 @@ CREATE TABLE selected_sites (
 
 ### User Isolation
 - **Separate Authentication**: Each user has independent OAuth2 tokens
-- **Separate Site Data**: Each user has independent site selections
+- **Separate Property Data**: Each user has independent property selections
 - **Database Isolation**: User data completely isolated by user_id
 - **Session Tracking**: Sessions tracked and can be revoked
 
@@ -273,20 +378,20 @@ curl http://localhost:3000/api/user123/status
 # 2. Authenticate user
 curl -X POST http://localhost:3000/api/user123/auth
 
-# 3. List available sites
-curl http://localhost:3000/api/user123/sites
+# 3. List available properties
+curl http://localhost:3000/api/user123/properties
 
-# 4. Select a site
-curl -X POST http://localhost:3000/api/user123/sites/select \
+# 4. Select a property
+curl -X POST http://localhost:3000/api/user123/properties/select \
   -H "Content-Type: application/json" \
-  -d '{"siteUrl": "https://example.com/"}'
+  -d '{"propertyId": "123456789"}'
 
 # 5. Run a query
 curl -X POST http://localhost:3000/api/user123/query/adhoc \
   -H "Content-Type: application/json" \
   -d '{
-    "metrics": ["clicks", "impressions"],
-    "dimensions": ["query"],
+    "metrics": ["sessions", "users"],
+    "dimensions": ["pageTitle"],
     "dateRangeType": "last7",
     "limit": 100
   }'
@@ -303,20 +408,29 @@ TOKEN=$(curl -X POST http://localhost:3000/api/auth/login \
 # 2. Use token for subsequent requests
 curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/api/status
 
-# 3. List sites
-curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/api/sites
+# 3. List properties
+curl -H "Authorization: Bearer $TOKEN" http://localhost:3000/api/properties
 
 # 4. Run query
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "metrics": ["clicks", "impressions"],
-    "dimensions": ["query"],
+    "metrics": ["sessions", "users"],
+    "dimensions": ["pageTitle"],
     "dateRangeType": "last7",
     "limit": 100
   }' http://localhost:3000/api/query/adhoc
 
-# 5. Logout
+# 5. Run session flow analysis
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "analysisType": "path_exploration",
+    "dateRangeType": "last7",
+    "limit": 100
+  }' http://localhost:3000/api/session-flow/explore
+
+# 6. Logout
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   http://localhost:3000/api/auth/logout
 ```
@@ -368,7 +482,7 @@ node test-api-jwt.js
 
 The test suite covers:
 - Authentication flows
-- Site management
+- Property management
 - Query execution
 - Error handling
 - Security features
@@ -395,4 +509,4 @@ The test suite covers:
 - **Health Checks**: Implement health check endpoints
 - **Alerting**: Set up alerts for critical errors and performance issues
 
-The API system provides a robust, secure, and scalable foundation for integrating Google Search Console data into other applications while maintaining the full functionality of the CLI interface.
+The API system provides a robust, secure, and scalable foundation for integrating Google Analytics 4 data into other applications while maintaining the full functionality of the CLI interface.

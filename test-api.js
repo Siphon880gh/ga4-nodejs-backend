@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Test script for GSC API endpoints with JWT authentication
+ * Test script for GA4 API endpoints with JWT authentication
  * Run this after starting the JWT API server with: npm run api:jwt
  */
 
@@ -175,7 +175,7 @@ async function startServer() {
 }
 
 async function runTests() {
-  console.log('🧪 Testing GSC API Endpoints with JWT Authentication\n');
+  console.log('🧪 Testing GA4 API Endpoints with JWT Authentication\n');
   
   // Check if server is running
   if (!(await checkServerRunning())) {
@@ -367,31 +367,31 @@ async function runTests() {
   // Test user status
   await testEndpoint('GET', '/api/status');
   
-  // Test list sites and select first verified site
-  console.log('\n🌐 Testing sites list and selection...');
-  const sitesResult = await testEndpoint('GET', '/api/sites');
+  // Test list properties and select first verified property
+  console.log('\n🌐 Testing properties list and selection...');
+  const propertiesResult = await testEndpoint('GET', '/api/properties');
   
-  if (sitesResult && sitesResult.success && sitesResult.sites && sitesResult.sites.length > 0) {
-    // Find first verified site (not unverified)
-    const verifiedSite = sitesResult.sites.find(site => 
-      site.permissionLevel !== 'siteUnverifiedUser'
+  if (propertiesResult && propertiesResult.success && propertiesResult.properties && propertiesResult.properties.length > 0) {
+    // Find first verified property
+    const verifiedProperty = propertiesResult.properties.find(property => 
+      property.propertyId && property.displayName
     );
     
-    if (verifiedSite) {
-      console.log(`\n📍 Selecting first verified site: ${verifiedSite.siteUrl}`);
-      await testEndpoint('POST', '/api/sites/select', {
-        siteUrl: verifiedSite.siteUrl
+    if (verifiedProperty) {
+      console.log(`\n📍 Selecting first verified property: ${verifiedProperty.propertyId}`);
+      await testEndpoint('POST', '/api/properties/select', {
+        propertyId: verifiedProperty.propertyId
       });
     } else {
-      console.log('\n⚠️  No verified sites found, using first available site');
-      await testEndpoint('POST', '/api/sites/select', {
-        siteUrl: sitesResult.sites[0].siteUrl
+      console.log('\n⚠️  No verified properties found, using first available property');
+      await testEndpoint('POST', '/api/properties/select', {
+        propertyId: propertiesResult.properties[0].propertyId
       });
     }
   }
   
-  // Test get current site
-  await testEndpoint('GET', '/api/sites/current');
+  // Test get current property
+  await testEndpoint('GET', '/api/properties/current');
   
   // Test get schema
   await testEndpoint('GET', '/api/schema');
@@ -399,11 +399,11 @@ async function runTests() {
   // Test get presets
   await testEndpoint('GET', '/api/presets');
   
-  // Test ad-hoc query (now that we have a site selected)
+  // Test ad-hoc query (now that we have a property selected)
   console.log('\n📊 Testing ad-hoc query...');
   await testEndpoint('POST', '/api/query/adhoc', {
-    metrics: ['clicks', 'impressions'],
-    dimensions: ['query'],
+    metrics: ['sessions', 'users'],
+    dimensions: ['pageTitle'],
     dateRangeType: 'last7',
     limit: 3
   });
@@ -411,7 +411,7 @@ async function runTests() {
   // Test preset query
   console.log('\n📋 Testing preset query...');
   await testEndpoint('POST', '/api/query/preset', {
-    preset: 'top-queries',
+    preset: 'top-pages',
     dateRangeType: 'last7',
     limit: 3
   });
@@ -419,11 +419,61 @@ async function runTests() {
   // Test CSV export
   console.log('\n📊 Testing CSV export...');
   await testEndpoint('POST', '/api/query/adhoc', {
-    metrics: ['clicks', 'impressions'],
-    dimensions: ['query'],
+    metrics: ['sessions', 'users'],
+    dimensions: ['pageTitle'],
     dateRangeType: 'last7',
     limit: 3,
     outputFormat: 'csv'
+  });
+  
+  // Test session flow analysis
+  console.log('\n🔍 Testing session flow analysis...');
+  await testEndpoint('POST', '/api/session-flow/explore', {
+    analysisType: 'path_exploration',
+    dateRangeType: 'last7',
+    limit: 10
+  });
+  
+  // Test session flow analysis with CSV export
+  console.log('\n📊 Testing session flow CSV export...');
+  await testEndpoint('POST', '/api/session-flow/analyze', {
+    analysisType: 'landing_analysis',
+    dateRangeType: 'last7',
+    limit: 10,
+    outputFormat: 'csv'
+  });
+  
+  // Test advanced filtering
+  console.log('\n🔍 Testing advanced filtering...');
+  const sampleData = [
+    { pageTitle: 'Home', sessions: 100, users: 80 },
+    { pageTitle: 'About', sessions: 50, users: 40 },
+    { pageTitle: 'Contact', sessions: 25, users: 20 }
+  ];
+  await testEndpoint('POST', '/api/query/filter', {
+    data: sampleData,
+    filters: [
+      { field: 'sessions', operator: '>', value: 30 }
+    ]
+  });
+  
+  // Test pagination
+  console.log('\n📄 Testing pagination...');
+  await testEndpoint('POST', '/api/query/paginate', {
+    data: sampleData,
+    page: 1,
+    pageSize: 2,
+    sorting: {
+      columns: [{ column: 'sessions', direction: 'desc' }]
+    }
+  });
+  
+  // Test file export
+  console.log('\n💾 Testing file export...');
+  await testEndpoint('POST', '/api/export/file', {
+    data: sampleData,
+    format: 'json',
+    filename: 'test-export.json'
   });
   
   // Test logout
