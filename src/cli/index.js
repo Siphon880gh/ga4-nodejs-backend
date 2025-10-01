@@ -15,7 +15,7 @@ import chalk from "chalk";
 import { loadConfig } from "../utils/config.js";
 import { buildPrompts, buildPresetPrompts, buildAdhocPrompts, buildSiteSelectionPrompts, buildSortingPrompts, displaySortingFeedback, buildSessionFlowPrompts } from "./prompts.js";
 import { runQuery } from "../core/query-runner.js";
-import { renderOutput } from "./renderers.js";
+import { renderOutput, clearFilters } from "./renderers.js";
 import { getOAuth2Client, getAvailableProperties } from "../datasources/analytics.js";
 import { saveSelectedSite, getSelectedSite, hasValidSiteSelection, clearSelectedSite, getVerifiedSites, signOut } from "../utils/site-manager.js";
 import { ensureAuthentication } from "../utils/auth-helper.js";
@@ -173,6 +173,8 @@ async function main() {
           await waitForEnter();
           continue;
         } else if (initialAnswers.action === "exit") {
+          // Clear filters on exit
+          clearFilters();
           console.log(chalk.blue("Goodbye! 👋"));
           break;
         } else if (initialAnswers.action === "session_flow") {
@@ -246,6 +248,8 @@ async function main() {
           
           const shouldContinue = await renderOutput(rows, finalAnswers, cfg);
           if (shouldContinue) {
+            // Clear filters after successful query completion
+            clearFilters();
             await waitForEnter();
           }
         } catch (e) {
